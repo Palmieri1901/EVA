@@ -73,8 +73,8 @@ export default function Vectorize() {
       return;
     }
     const res = fromCamera
-      ? await ImagePicker.launchCameraAsync({ quality: 0.9 })
-      : await ImagePicker.launchImageLibraryAsync({ quality: 0.9, mediaTypes: ["images"] });
+      ? await ImagePicker.launchCameraAsync({ quality: 0.9, allowsEditing: true })
+      : await ImagePicker.launchImageLibraryAsync({ quality: 0.9, allowsEditing: true, mediaTypes: ["images"] });
     if (!res.canceled && res.assets?.length) {
       setImageUri(res.assets[0].uri);
       setResult(null);
@@ -186,7 +186,7 @@ export default function Vectorize() {
           ) : (
             <View style={styles.previewEmpty}>
               <MaterialCommunityIcons name="image-search-outline" size={48} color={colors.onSurfaceTertiary} />
-              <Text style={styles.previewHint}>Scatta o scegli una foto del logo{"\n"}(scuro su sfondo chiaro)</Text>
+              <Text style={styles.previewHint}>Scatta o scegli una foto, poi{"\n"}RITAGLIA stretto attorno al logo/soggetto{"\n"}(sfondo pulito = risultato migliore)</Text>
             </View>
           )}
         </View>

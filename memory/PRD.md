@@ -74,6 +74,11 @@ FastAPI condiviso; la Computer Vision gira sul backend.
   configurabili). Flag `cut_only` per esportare solo il TAGLIO.
 - ✅ **Selettore macchina** (home, context `machine.tsx` persistito): due pulsanti FRESA CNC / LASER.
   In modalità LASER l'export offre solo DXF/SVG in solo-TAGLIO (per tagliare la gomma dei gommoni).
+- ✅ **Vettorizza da foto — pipeline robusta** (`vectorize.py`): auto-crop bande uniformi,
+  CLAHE+bilaterale, **GrabCut** per rimuovere lo sfondo (logo/oggetto), soglia intensità per
+  scritte/soglia manuale/dettagli interni, smoothing Chaikin. Ritaglio abilitato nel picker
+  (`allowsEditing`). Nota: per loghi dettagliati a colori serve ritaglio stretto/foto pulita; il
+  tracciamento automatico è ottimale per silhouette/sagome.
 - ✅ **Vettorizza logo/scritta da foto** (`vectorize.py` + `/api/vectorize`, schermata `/vectorize`):
   da una foto (scuro su sfondo chiaro) traccia i contorni (OpenCV), scala alla larghezza reale in
   mm, genera DXF scaricabile e/o lo inserisce come elemento in un tappeto

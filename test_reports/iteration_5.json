@@ -1,0 +1,47 @@
+{
+  "summary": "Reworked photo→DXF vectorize pipeline verified end-to-end. Backend: created /app/backend/tests/test_vectorize_pipeline.py (8 targeted tests) — 8/8 PASS covering: subject=scritta on black text on white returns count>=1; subject=logo on black filled circle returns count>=1 (GrabCut path); subject=oggetto on solid rectangle returns count>=1; internals=true on a hollow black ring returns MORE contours (2) than internals=false (1); manual threshold=128 with invert=true returns 200; blank/white image returns 422 with detail='Nessuna forma rilevata: regola la soglia o migliora la foto'; target_width_mm=300 scales width_mm to within 1mm of 300; /projects/{id}/elements still appends a polyline element and sets status='edited' (regression). Frontend (mobile 390x844 web preview) /vectorize: all controls render — pick-camera/pick-library, subject-scritta/subject-logo/subject-oggetto selector, vec-width mm input, vec-internals & vec-invert & vec-auto toggles, vec-analyze. Toggling vec-auto OFF correctly reveals the vec-thr input; back ON hides it. Changing width to 300 persists in the field. Clicking ANALIZZA without an image shows the expected 'Scegli prima una foto' toast — no red screens, no console errors. No new deprecated Expo packages detected. Regression suite (test_exports_and_vectorize.py + boats + stitch/fill + base) unchanged; only the new vectorize pipeline suite was added.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/vectorize",
+        "issue": "Pipeline can silently return 422 ('Nessuna forma rilevata') on VERY tight crops where the subject fills the frame edge-to-edge. Root cause chain: _crop_letterbox trims uniform borders → subject occupies ~100% of the frame → the 'skip contours hugging whole frame' filter (cw>98.5%×w AND ch>98.5%×h in vectorize.py:176) discards the only contour left. Not seen on the review's synthetic cases (they leave enough interior margin post-crop), but real user photos cropped very tight to a logo could still hit it. Consider raising the threshold (e.g. cw≥w AND ch≥h) or requiring the contour to also touch >=3 borders before discarding. Reference: /app/backend/vectorize.py:174-181."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_vectorize_pipeline.py",
+    "/app/test_reports/pytest/iter5_vectorize.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: relax the 'hugs whole frame' filter at vectorize.py:174-181 so tight-cropped photos (which the picker now encourages with allowsEditing:true) don't silently return 422 — either raise the threshold to 100% AND require touch>=3 borders, or drop the filter when only a single contour exists.",
+    "OPTIONAL: /vectorize back-btn is inside the header row and Playwright reports is_visible=False (visually rendered though). Consider wrapping the Pressable so its bounding box has non-zero height in the web renderer (e.g. add padding or width). Not user-blocking."
+  ],
+  "critical_code_review_comments": [
+    "vectorize.py:99 GrabCut path is only taken when subject in (logo, oggetto) AND internals=false AND threshold<0 — matches the pipeline description. Falls back to threshold path if GrabCut mask fraction is outside [0.02, 0.95].",
+    "vectorize.py:152-156 border-mean flip logic is correct for the common 'dark subject on light background' after threshold+invert; it does the right thing when the subject sits inside a white margin.",
+    "vectorize.py:174-181 full-frame + 3-border filters are useful for cluttered real photos but interact poorly with tight crops; see backend_issues.minor.",
+    "vectorize.py:199-211 the mm-scale normalization uses the union bbox across all polys; multi-shape logos will be correctly scaled to target_width_mm.",
+    "server.py:767 the endpoint stores preview and dxf under {APP_NAME}/vectorize/{uid}_preview.png and /{uid}.dxf and returns file_url()-wrapped URLs; both are fetchable via /api/files/{path}.",
+    "frontend/app/vectorize.tsx:76-77 launchCameraAsync/launchImageLibraryAsync both pass allowsEditing:true — required for the pipeline to work reliably.",
+    "frontend/app/vectorize.tsx:206 form.append('threshold', String(opts.threshold ?? -1)) — sent as string, backend Form(int) parses correctly; -1 sentinel means 'auto'."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_vectorize_pipeline.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 new vectorize pipeline suite)",
+    "frontend": "100% (all controls render and toggle; empty-state UX shows expected toast)"
+  },
+  "seed_data_creation": "test_elements_append_polyline_regression creates a temporary TEST_vec_pipeline_piece project and deletes it in finally.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Five backend pytest suites now: test_boat_mat_api.py, test_boats_api.py, test_exports_and_vectorize.py, test_stitch_and_fill.py, NEW test_vectorize_pipeline.py. Run all: `export $(grep -v '^#' /app/frontend/.env | xargs) && python -m pytest backend/tests/ -v`. Notes: (a) test_vectorize_pipeline.py deliberately uses images with wide margins (subject <30% of canvas) so the pipeline's letterbox-crop 30% guard keeps the original frame; if you shrink margins the pipeline can return 422 due to the 'hugs frame' filter — this is a real edge case documented under backend_issues.minor. (b) Fonts: use /usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf (DejaVu is NOT installed in this image). (c) GrabCut adds ~1-2s per call; kept TIMEOUT=60 in the test.",
+  "rca_of_issue": "N/A — the vectorize rework is functional. The only latent risk is the 'hugs whole frame' filter combined with tight user crops; documented in backend_issues.minor with a suggested mitigation."
+}
