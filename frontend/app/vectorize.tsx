@@ -1,9 +1,10 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
   Linking,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -12,6 +13,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import Slider from "@react-native-community/slider";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -42,14 +44,40 @@ export default function Vectorize() {
   const { machine } = useMachine();
 
   const [imageUri, setImageUri] = useState<string | null>(null);
-  const [subject, setSubject] = useState<"scritta" | "logo" | "oggetto">("logo");
+  const [subject, setSubject] = useState<"scritta" | "logo" | "oggetto" | "cerchio">("logo");
   const [internals, setInternals] = useState(false);
   const [invert, setInvert] = useState(true);
   const [widthMm, setWidthMm] = useState("200");
   const [autoThr, setAutoThr] = useState(true);
-  const [thr, setThr] = useState("128");
+  const [thr, setThr] = useState(128);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<VecResult | null>(null);
+
+  // ROI selection (in display px) + image aspect
+  const [aspect, setAspect] = useState(1);
+  const [layout, setLayout] = useState({ w: 1, h: 1 });
+  const [roiRect, setRoiRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const startRef = useRef<{ x: number; y: number } | null>(null);
+  const layoutRef = useRef({ w: 1, h: 1 });
+
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (e) => {
+        startRef.current = { x: e.nativeEvent.locationX, y: e.nativeEvent.locationY };
+        setRoiRect({ x: startRef.current.x, y: startRef.current.y, w: 0, h: 0 });
+      },
+      onPanResponderMove: (e) => {
+        const s = startRef.current;
+        if (!s) return;
+        const { w: LW, h: LH } = layoutRef.current;
+        const cx = Math.max(0, Math.min(LW, e.nativeEvent.locationX));
+        const cy = Math.max(0, Math.min(LH, e.nativeEvent.locationY));
+        setRoiRect({ x: Math.min(s.x, cx), y: Math.min(s.y, cy), w: Math.abs(cx - s.x), h: Math.abs(cy - s.y) });
+      },
+    })
+  ).current;
 
   // insert flow
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -73,11 +101,15 @@ export default function Vectorize() {
       return;
     }
     const res = fromCamera
-      ? await ImagePicker.launchCameraAsync({ quality: 0.9, allowsEditing: true })
-      : await ImagePicker.launchImageLibraryAsync({ quality: 0.9, allowsEditing: true, mediaTypes: ["images"] });
+      ? await ImagePicker.launchCameraAsync({ quality: 0.9 })
+      : await ImagePicker.launchImageLibraryAsync({ quality: 0.9, mediaTypes: ["images"] });
     if (!res.canceled && res.assets?.length) {
-      setImageUri(res.assets[0].uri);
+      const a = res.assets[0];
+      setImageUri(a.uri);
       setResult(null);
+      setRoiRect(null);
+      if (a.width && a.height) setAspect(a.height / a.width);
+      else Image.getSize(a.uri, (w, h) => setAspect(h / w), () => setAspect(1));
     }
   };
 
@@ -88,12 +120,22 @@ export default function Vectorize() {
     }
     setBusy(true);
     try {
+      let roi: { x: number; y: number; w: number; h: number } | null = null;
+      if (roiRect && roiRect.w > 8 && roiRect.h > 8) {
+        roi = {
+          x: roiRect.x / layout.w,
+          y: roiRect.y / layout.h,
+          w: roiRect.w / layout.w,
+          h: roiRect.h / layout.h,
+        };
+      }
       const r = await api.vectorize(imageUri, {
         invert,
         subject,
         internals,
+        roi,
         target_width_mm: parseFloat(widthMm) || 200,
-        threshold: autoThr ? -1 : parseInt(thr) || 128,
+        threshold: autoThr ? -1 : thr,
       });
       setResult(r);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -178,18 +220,51 @@ export default function Vectorize() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled">
-        <View style={styles.preview}>
+        <View
+          style={styles.preview}
+          onLayout={(e) => {
+            const w = e.nativeEvent.layout.width;
+            const h = Math.min(Math.max(w * aspect, 160), 420);
+            const l = { w, h };
+            setLayout(l);
+            layoutRef.current = l;
+          }}
+        >
           {result?.preview_url ? (
-            <Image source={{ uri: absUrl(result.preview_url) }} style={styles.previewImg} resizeMode="contain" />
+            <Image source={{ uri: absUrl(result.preview_url) }} style={{ width: layout.w, height: layout.h }} resizeMode="contain" />
           ) : imageUri ? (
-            <Image source={{ uri: imageUri }} style={styles.previewImg} resizeMode="contain" />
+            <View style={{ width: layout.w, height: layout.h }}>
+              <Image source={{ uri: imageUri }} style={{ width: layout.w, height: layout.h }} resizeMode="contain" />
+              <View style={StyleSheet.absoluteFill} {...pan.panHandlers}>
+                {roiRect && roiRect.w > 2 && roiRect.h > 2 && (
+                  <View
+                    testID="roi-rect"
+                    style={[styles.roi, { left: roiRect.x, top: roiRect.y, width: roiRect.w, height: roiRect.h }]}
+                  />
+                )}
+              </View>
+            </View>
           ) : (
             <View style={styles.previewEmpty}>
               <MaterialCommunityIcons name="image-search-outline" size={48} color={colors.onSurfaceTertiary} />
-              <Text style={styles.previewHint}>Scatta o scegli una foto, poi{"\n"}RITAGLIA stretto attorno al logo/soggetto{"\n"}(sfondo pulito = risultato migliore)</Text>
+              <Text style={styles.previewHint}>Scatta o scegli una foto,{"\n"}poi trascina per selezionare l'area del logo</Text>
             </View>
           )}
         </View>
+
+        {imageUri && !result && (
+          <View style={styles.roiBar}>
+            <Text style={styles.roiHint}>
+              {roiRect && roiRect.w > 8 ? "Area selezionata ✓" : "Trascina sull'immagine per selezionare l'area"}
+            </Text>
+            {roiRect ? (
+              <Pressable testID="roi-clear" onPress={() => setRoiRect(null)} hitSlop={8} style={styles.roiClear}>
+                <Feather name="x" size={14} color={colors.onSurface} />
+                <Text style={styles.roiClearText}>AREA</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        )}
 
         <View style={styles.pickRow}>
           <Pressable testID="pick-camera" style={styles.pickBtn} onPress={() => pickImage(true)}>
@@ -205,14 +280,14 @@ export default function Vectorize() {
 
         <Text style={styles.label}>Cosa rilevare</Text>
         <View style={styles.segRow}>
-          {([["scritta", "SCRITTA"], ["logo", "LOGO"], ["oggetto", "OGGETTO"]] as const).map(([v, l]) => (
+          {([["scritta", "SCRITTA"], ["logo", "LOGO"], ["oggetto", "OGGETTO"], ["cerchio", "CERCHIO"]] as const).map(([v, l]) => (
             <Pressable
               key={v}
               testID={`subject-${v}`}
               style={[styles.segBtn, subject === v && styles.toggleOn]}
               onPress={() => { Haptics.selectionAsync().catch(() => {}); setSubject(v); setResult(null); }}
             >
-              <Text style={[styles.toggleText, subject === v && styles.toggleTextOn]}>{l}</Text>
+              <Text style={[styles.toggleText, { fontSize: fontSize.sm }, subject === v && styles.toggleTextOn]}>{l}</Text>
             </Pressable>
           ))}
         </View>
@@ -220,12 +295,14 @@ export default function Vectorize() {
         <Text style={styles.label}>Larghezza reale del logo (mm)</Text>
         <TextInput testID="vec-width" value={widthMm} onChangeText={setWidthMm} keyboardType="decimal-pad" style={styles.input} />
 
-        <View style={styles.toggleRow}>
-          <Pressable testID="vec-internals" style={[styles.toggle, internals && styles.toggleOn]} onPress={() => { setInternals(!internals); setResult(null); }}>
-            <Feather name={internals ? "check-square" : "square"} size={16} color={internals ? colors.onSurfaceInverse : colors.onSurface} />
-            <Text style={[styles.toggleText, internals && styles.toggleTextOn]}>Dettagli interni (fori, linee)</Text>
-          </Pressable>
-        </View>
+        {subject !== "cerchio" && (
+          <View style={styles.toggleRow}>
+            <Pressable testID="vec-internals" style={[styles.toggle, internals && styles.toggleOn]} onPress={() => { setInternals(!internals); setResult(null); }}>
+              <Feather name={internals ? "check-square" : "square"} size={16} color={internals ? colors.onSurfaceInverse : colors.onSurface} />
+              <Text style={[styles.toggleText, internals && styles.toggleTextOn]}>Dettagli interni (fori, linee)</Text>
+            </Pressable>
+          </View>
+        )}
 
         <View style={styles.toggleRow}>
           <Pressable testID="vec-invert" style={[styles.toggle, invert && styles.toggleOn]} onPress={() => setInvert(!invert)}>
@@ -233,15 +310,26 @@ export default function Vectorize() {
             <Text style={[styles.toggleText, invert && styles.toggleTextOn]}>Soggetto scuro su chiaro</Text>
           </Pressable>
         </View>
-        <View style={styles.toggleRow}>
-          <Pressable testID="vec-auto" style={[styles.toggle, autoThr && styles.toggleOn]} onPress={() => setAutoThr(!autoThr)}>
-            <Feather name={autoThr ? "check-square" : "square"} size={16} color={autoThr ? colors.onSurfaceInverse : colors.onSurface} />
-            <Text style={[styles.toggleText, autoThr && styles.toggleTextOn]}>Soglia automatica</Text>
+
+        <View style={styles.thrHeader}>
+          <Text style={styles.label}>Soglia {autoThr ? "(auto)" : `· ${thr}`}</Text>
+          <Pressable testID="vec-auto" style={[styles.autoChip, autoThr && styles.toggleOn]} onPress={() => setAutoThr(!autoThr)}>
+            <Text style={[styles.toggleText, { fontSize: 11 }, autoThr && styles.toggleTextOn]}>AUTO</Text>
           </Pressable>
-          {!autoThr && (
-            <TextInput testID="vec-thr" value={thr} onChangeText={setThr} keyboardType="number-pad" style={[styles.input, { flex: 1, marginTop: 0, marginLeft: space.md }]} />
-          )}
         </View>
+        <Slider
+          testID="vec-thr-slider"
+          style={{ width: "100%", height: 36, opacity: autoThr ? 0.4 : 1 }}
+          minimumValue={0}
+          maximumValue={255}
+          step={1}
+          value={thr}
+          disabled={autoThr}
+          onValueChange={(v) => setThr(Math.round(v))}
+          minimumTrackTintColor={colors.brand}
+          maximumTrackTintColor={colors.border}
+          thumbTintColor={colors.onSurface}
+        />
 
         <View style={{ height: space.md }} />
         <Btn testID="vec-analyze" label={result ? "RIANALIZZA" : "ANALIZZA"} loading={busy} icon={<Feather name="cpu" size={18} color={colors.onBrand} />} onPress={analyze} />
@@ -322,11 +410,18 @@ const styles = StyleSheet.create({
   kicker: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.brand, letterSpacing: 2 },
   title: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface, letterSpacing: 0.5 },
   preview: {
-    height: 240, borderWidth: BORDER, borderColor: colors.borderStrong,
+    minHeight: 200, borderWidth: BORDER, borderColor: colors.borderStrong,
     backgroundColor: colors.surfaceTertiary, alignItems: "center", justifyContent: "center", marginBottom: space.md,
+    overflow: "hidden",
   },
-  previewImg: { width: "100%", height: "100%" },
   previewEmpty: { alignItems: "center", gap: space.sm, padding: space.lg },
+  roi: { position: "absolute", borderWidth: 2, borderColor: colors.brand, backgroundColor: "rgba(184,74,0,0.12)" },
+  roiBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: space.sm, marginBottom: space.md },
+  roiHint: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, flex: 1 },
+  roiClear: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: BORDER, borderColor: colors.borderStrong, paddingHorizontal: space.sm, paddingVertical: 6 },
+  roiClearText: { fontFamily: fonts.monoMed, fontSize: 11, color: colors.onSurface },
+  thrHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: space.sm },
+  autoChip: { borderWidth: BORDER, borderColor: colors.borderStrong, paddingHorizontal: space.md, paddingVertical: 6, backgroundColor: colors.surface },
   previewHint: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, textAlign: "center" },
   pickRow: { flexDirection: "row", marginBottom: space.md },
   pickBtn: {

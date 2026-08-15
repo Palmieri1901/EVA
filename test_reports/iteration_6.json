@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 6: verified the three new /api/vectorize params (subject='cerchio' HoughCircles path, roi JSON form field, manual threshold slider). Created /app/backend/tests/test_vectorize_roi_circle_threshold.py — 10/10 PASS. Coverage: (1) subject=cerchio on a clear circle image returns count>=1 with a ~96-point closed polyline (poly length 97 with wrap) and both preview_url + dxf_url; (2) subject=cerchio on an image with NO circle (solid rectangle) returns HTTP 422 with detail containing 'cerchio' — matches 'Nessun cerchio rilevato'; (3) roi='{\"x\":0.25,\"y\":0.25,\"w\":0.5,\"h\":0.5}' on a centered-shape image succeeds and returned width_mm == requested target_width_mm (180.0) within 1 mm (scale normalization uses union bbox as expected); (4) malformed roi JSON string ('{not valid json') is caught by try/except in server.py:783 and gracefully ignored — request still returns 200; (5) manual threshold=100 + invert=true on black-on-white text returns 200 with count>=1; (6) regression parametrized for subject in [scritta, logo, oggetto] all return 200 with count>=1; (7) blank white image still returns 422. Backend testing only per request; frontend skipped.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/vectorize?subject=cerchio",
+        "issue": "HoughCircles fails to detect FILLED discs on white (only outlined circles are detected reliably). With current params (param1=110, param2=45, dp=1.2 in vectorize.py:84-87), a filled black disc (any radius fraction 0.12-0.30 tested) returns 422 'Nessun cerchio rilevato'. Outlined circles work fine. Real-world logos are usually outlined so this may be acceptable, but consider lowering param2 or adding an ellipse-fit fallback for filled discs. Reference: /app/backend/vectorize.py:79-97."
+      },
+      {
+        "endpoint": "POST /api/vectorize (external storage transient)",
+        "issue": "Observed a one-off 500 from the upstream object-store PUT (integrations.emergentagent.com/objstore ...) during the run — retry passed. Not a backend code bug; flagging as environmental flakiness. If it recurs, consider a small retry-with-backoff around store.put_object in server.py:797-802."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_vectorize_roi_circle_threshold.py",
+    "/app/test_reports/pytest/iter6_vec_roi.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: broaden HoughCircles detection to include filled discs — either lower param2 (e.g. 30-35) and add a duplicate-suppression step, or fall back to a min-enclosing-circle fit on the largest contour when HoughCircles returns None. Location: /app/backend/vectorize.py:84-97.",
+    "OPTIONAL: wrap store.put_object calls in server.py (vectorize + techsheet + exports) with 1-2 retries to absorb transient upstream 500s from the object store."
+  ],
+  "critical_code_review_comments": [
+    "server.py:776 the roi form field is correctly declared as `roi: str = Form('')` (multipart friendly). Empty string / invalid JSON is handled at server.py:780-785 by wrapping json.loads in a try/except and passing None to vectorize_image → falls back to _crop_letterbox path. Good defensive parsing.",
+    "vectorize.py:162-172 ROI is applied BEFORE the auto letterbox crop and is clamped to [0,1] fractions with min 0.02 size; manual ROI overrides letterbox — correct precedence.",
+    "vectorize.py:185-188 subject=='cerchio' short-circuits binarization entirely and emits a 96-point closed polyline; the same union-bbox scale normalization later maps it into target_width_mm — this is why width_mm==target_width_mm within rounding for the ROI test.",
+    "vectorize.py:79-97 HoughCircles picks the largest-radius candidate (`max(circles, key=lambda c: c[2])`), not the strongest by accumulator; comment on line 91 is slightly misleading. Not a bug but worth noting."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_vectorize_roi_circle_threshold.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10 new roi+circle+threshold suite)",
+    "frontend": "N/A (skipped per request)"
+  },
+  "seed_data_creation": "None. Tests are stateless and don't create Mongo documents.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Six backend pytest suites now: test_boat_mat_api.py, test_boats_api.py, test_exports_and_vectorize.py, test_stitch_and_fill.py, test_vectorize_pipeline.py, NEW test_vectorize_roi_circle_threshold.py. Run all: `export $(grep -v '^#' /app/frontend/.env | xargs) && python -m pytest backend/tests/ -v`. Notes for cerchio: use OUTLINED cv2.circle (thickness > 0) with r_frac ~0.20-0.30 on white — filled discs are NOT reliably detected by the current HoughCircles params. ROI test uses target_width_mm equality as the crop-effect assertion (scale normalization forces union-bbox width to equal the target).",
+  "rca_of_issue": "N/A — the three new params (subject=cerchio, roi JSON, manual threshold) are functional. Documented one usability gap: filled discs escape HoughCircles detection with current params (backend_issues.minor)."
+}

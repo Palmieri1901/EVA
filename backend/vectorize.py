@@ -76,6 +76,38 @@ def _crop_letterbox(img: np.ndarray) -> np.ndarray:
     return img[top:bot + 1, left:right + 1]
 
 
+def _detect_circles(gray: np.ndarray, w: int, h: int) -> List[Poly]:
+    """Detect circular logos/emblems and return perfect circle polylines (px)."""
+    g = cv2.medianBlur(gray, 5)
+    minr = int(min(w, h) * 0.12)
+    maxr = int(min(w, h) * 0.60)
+    circles = cv2.HoughCircles(
+        g, cv2.HOUGH_GRADIENT, dp=1.2, minDist=int(min(w, h) * 0.5),
+        param1=110, param2=45, minRadius=minr, maxRadius=maxr,
+    )
+    if circles is None:
+        # fallback: fit a circle to the largest foreground blob (filled discs)
+        _, b = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        border = np.concatenate([b[0, :], b[-1, :], b[:, 0], b[:, -1]])
+        if border.mean() > 140:
+            b = cv2.bitwise_not(b)
+        cnts, _ = cv2.findContours(b, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cnts = [c for c in cnts if cv2.contourArea(c) > (w * h) * 0.01]
+        if not cnts:
+            return []
+        (cx, cy), r = cv2.minEnclosingCircle(max(cnts, key=cv2.contourArea))
+        cx, cy, r = int(cx), int(cy), int(r)
+    else:
+        circles = np.round(circles[0, :]).astype(int)
+        # keep the largest circle
+        cx, cy, r = max(circles, key=lambda c: c[2])
+    n = 96
+    poly = [[float(cx + r * np.cos(t)), float(cy + r * np.sin(t))]
+            for t in np.linspace(0, 2 * np.pi, n, endpoint=False)]
+    poly.append(poly[0])
+    return [poly]
+
+
 def _grabcut_mask(img: np.ndarray) -> np.ndarray:
     """Foreground silhouette via GrabCut, seeded with an inset rectangle.
     Best after the user has cropped tightly to the subject."""
@@ -119,6 +151,7 @@ def vectorize_image(
     subject: str = "logo",
     internals: bool = False,
     smooth: bool = True,
+    roi: dict = None,          # {x,y,w,h} as fractions 0-1 of the image
 ) -> dict:
     presets = {
         "scritta": {"min_area_frac": 0.0004, "simplify": 0.0025, "largest_only": False, "smooth_it": 1, "close_mul": 0.006, "close_it": 1},
@@ -137,7 +170,19 @@ def vectorize_image(
     if img is None:
         raise ValueError("Immagine non valida")
 
-    img = _crop_letterbox(img)
+    if roi:
+        H, W = img.shape[:2]
+        rx = max(0.0, min(1.0, float(roi.get("x", 0))))
+        ry = max(0.0, min(1.0, float(roi.get("y", 0))))
+        rw = max(0.02, min(1.0 - rx, float(roi.get("w", 1))))
+        rh = max(0.02, min(1.0 - ry, float(roi.get("h", 1))))
+        x0, y0 = int(rx * W), int(ry * H)
+        x1, y1 = int((rx + rw) * W), int((ry + rh) * H)
+        crop = img[y0:y1, x0:x1]
+        if crop.size and crop.shape[0] > 10 and crop.shape[1] > 10:
+            img = crop  # manual ROI overrides auto letterbox crop
+    else:
+        img = _crop_letterbox(img)
     h0, w0 = img.shape[:2]
     scale_down = 1400.0 / max(h0, w0)
     if scale_down < 1.0:
@@ -148,58 +193,63 @@ def vectorize_image(
     gray = cv2.bilateralFilter(gray, 11, 75, 75)
     gray = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8)).apply(gray)
 
-    binimg = _binarize(img, gray, threshold, invert, subj, internals)
+    if subj == "cerchio":
+        polys_px = _detect_circles(gray, w, h)
+        if not polys_px:
+            raise ValueError("Nessun cerchio rilevato: ritaglia meglio attorno al logo")
+    else:
+        binimg = _binarize(img, gray, threshold, invert, subj, internals)
 
-    # ensure background (image borders) is black; else flip
-    border = np.concatenate([binimg[0, :], binimg[-1, :], binimg[:, 0], binimg[:, -1]])
-    if border.mean() > 140:
-        binimg = cv2.bitwise_not(binimg)
+        # ensure background (image borders) is black; else flip
+        border = np.concatenate([binimg[0, :], binimg[-1, :], binimg[:, 0], binimg[:, -1]])
+        if border.mean() > 140:
+            binimg = cv2.bitwise_not(binimg)
 
-    # cleanup — close scaled to subject (fills plank grooves for 'oggetto')
-    k = _odd(max(3, int(min(h, w) * pr["close_mul"])))
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
-    binimg = cv2.morphologyEx(binimg, cv2.MORPH_CLOSE, kernel, iterations=pr["close_it"])
-    ok = _odd(max(3, int(min(h, w) * 0.005)))
-    binimg = cv2.morphologyEx(binimg, cv2.MORPH_OPEN,
-                              cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ok, ok)), iterations=1)
+        # cleanup — close scaled to subject (fills plank grooves for 'oggetto')
+        k = _odd(max(3, int(min(h, w) * pr["close_mul"])))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+        binimg = cv2.morphologyEx(binimg, cv2.MORPH_CLOSE, kernel, iterations=pr["close_it"])
+        ok = _odd(max(3, int(min(h, w) * 0.005)))
+        binimg = cv2.morphologyEx(binimg, cv2.MORPH_OPEN,
+                                  cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ok, ok)), iterations=1)
 
-    retr = cv2.RETR_CCOMP if internals else cv2.RETR_EXTERNAL
-    contours, _ = cv2.findContours(binimg, retr, cv2.CHAIN_APPROX_SIMPLE)
-    img_area = h * w
-    polys_px: List[Poly] = []
-    fallback: List[Poly] = []  # kept if the frame-hugging filter removes everything
-    for c in contours:
-        area = cv2.contourArea(c)
-        if area < img_area * min_area_frac:
-            continue
-        peri = cv2.arcLength(c, True)
-        eps = max(simplify, 0.0008) * peri
-        approx = cv2.approxPolyDP(c, eps, True)
-        pts = [[float(p[0][0]), float(p[0][1])] for p in approx]
-        if len(pts) < 3:
-            continue
-        pts.append(pts[0])
-        if smooth_it:
-            pts = _chaikin(pts, smooth_it)
-        fallback.append(pts)
+        retr = cv2.RETR_CCOMP if internals else cv2.RETR_EXTERNAL
+        contours, _ = cv2.findContours(binimg, retr, cv2.CHAIN_APPROX_SIMPLE)
+        img_area = h * w
+        polys_px = []
+        fallback: List[Poly] = []  # kept if the frame-hugging filter removes everything
+        for c in contours:
+            area = cv2.contourArea(c)
+            if area < img_area * min_area_frac:
+                continue
+            peri = cv2.arcLength(c, True)
+            eps = max(simplify, 0.0008) * peri
+            approx = cv2.approxPolyDP(c, eps, True)
+            pts = [[float(p[0][0]), float(p[0][1])] for p in approx]
+            if len(pts) < 3:
+                continue
+            pts.append(pts[0])
+            if smooth_it:
+                pts = _chaikin(pts, smooth_it)
+            fallback.append(pts)
 
-        # background heuristics: whole-frame rectangle or blob touching 3+ borders
-        x, y, cw, ch = cv2.boundingRect(c)
-        full_frame = cw > w * 0.985 and ch > h * 0.985
-        touch = (x <= 2) + (y <= 2) + (x + cw >= w - 2) + (y + ch >= h - 2)
-        if full_frame or (touch >= 3 and area > img_area * 0.35):
-            continue
-        polys_px.append(pts)
+            # background heuristics: whole-frame rectangle or blob touching 3+ borders
+            x, y, cw, ch = cv2.boundingRect(c)
+            full_frame = cw > w * 0.985 and ch > h * 0.985
+            touch = (x <= 2) + (y <= 2) + (x + cw >= w - 2) + (y + ch >= h - 2)
+            if full_frame or (touch >= 3 and area > img_area * 0.35):
+                continue
+            polys_px.append(pts)
 
-    # never drop everything: on a very tight crop the subject fills the frame
-    if not polys_px:
-        polys_px = fallback
-    if not polys_px:
-        raise ValueError("Nessuna forma rilevata: regola la soglia o migliora la foto")
+        # never drop everything: on a very tight crop the subject fills the frame
+        if not polys_px:
+            polys_px = fallback
+        if not polys_px:
+            raise ValueError("Nessuna forma rilevata: regola la soglia o migliora la foto")
 
-    if largest_only and len(polys_px) > 1:
-        polys_px = [max(polys_px, key=lambda poly: cv2.contourArea(
-            np.array(poly, dtype=np.float32).reshape(-1, 1, 2)))]
+        if largest_only and len(polys_px) > 1:
+            polys_px = [max(polys_px, key=lambda poly: cv2.contourArea(
+                np.array(poly, dtype=np.float32).reshape(-1, 1, 2)))]
 
     xs = [p[0] for poly in polys_px for p in poly]
     ys = [p[1] for poly in polys_px for p in poly]

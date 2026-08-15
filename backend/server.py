@@ -773,11 +773,19 @@ async def vectorize_photo(
     simplify: float = Form(0.005),
     subject: str = Form("logo"),
     internals: bool = Form(False),
+    roi: str = Form(""),
 ):
     data = await file.read()
+    roi_obj = None
+    if roi:
+        try:
+            import json as _json
+            roi_obj = _json.loads(roi)
+        except Exception:  # noqa: BLE001
+            roi_obj = None
     try:
         res = await run_in_threadpool(
-            vec.vectorize_image, data, threshold, invert, target_width_mm, simplify, 0.0008, subject, internals
+            vec.vectorize_image, data, threshold, invert, target_width_mm, simplify, 0.0008, subject, internals, True, roi_obj
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

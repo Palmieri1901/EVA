@@ -192,7 +192,7 @@ export const api = {
 
   async vectorize(
     uri: string,
-    opts: { threshold?: number; invert?: boolean; target_width_mm?: number; simplify?: number; subject?: string; internals?: boolean } = {}
+    opts: { threshold?: number; invert?: boolean; target_width_mm?: number; simplify?: number; subject?: string; internals?: boolean; roi?: { x: number; y: number; w: number; h: number } | null } = {}
   ): Promise<{ polylines: number[][][]; width_mm: number; height_mm: number; count: number; preview_url: string | null; dxf_url: string }> {
     const form = new FormData();
     const name = `vec_${Date.now()}.jpg`;
@@ -209,6 +209,7 @@ export const api = {
     form.append("simplify", String(opts.simplify ?? 0.005));
     form.append("subject", String(opts.subject ?? "logo"));
     form.append("internals", String(opts.internals ?? false));
+    if (opts.roi) form.append("roi", JSON.stringify(opts.roi));
     const res = await fetch(`${API}/vectorize`, { method: "POST", body: form });
     if (!res.ok) {
       let d = `Vettorizzazione fallita (${res.status})`;
