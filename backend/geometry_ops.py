@@ -309,21 +309,32 @@ def _staggered_planks(field: Polygon, plank_w: float, angle_deg: float,
 
 
 def _build_keepout(exclude: List[Poly], margin: float):
-    """Union of exclude polylines buffered by `margin` → clear-zone geometry."""
+    """Clear-zone geometry: closed shapes (logos/glyphs) are filled and buffered,
+    open strokes are buffered as bands. Union → one keep-out region."""
     if not exclude:
         return None
-    buffered = []
+    shapes = []
     m = max(margin, 0.1)
     for line in exclude:
         if not line or len(line) < 2:
             continue
         try:
-            buffered.append(LineString(line).buffer(m, cap_style=1, join_style=1))
+            if len(line) >= 3:
+                p = Polygon(line)
+                if not p.is_valid:
+                    p = p.buffer(0)
+                if not p.is_empty and p.area > 1e-6:
+                    shapes.append(p.buffer(m, join_style=1))
+                    continue
+            shapes.append(LineString(line).buffer(m, cap_style=1, join_style=1))
         except Exception:  # noqa: BLE001
-            continue
-    if not buffered:
+            try:
+                shapes.append(LineString(line).buffer(m, cap_style=1, join_style=1))
+            except Exception:  # noqa: BLE001
+                continue
+    if not shapes:
         return None
-    zone = unary_union(buffered)
+    zone = unary_union(shapes)
     if zone.is_empty:
         return None
     return zone
@@ -340,6 +351,8 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
     if poly.is_empty:
         return {"pattern": [], "border": [], "angle_used": angle_deg}
 
+    orig_poly = poly  # full contour, used to clip grooves / keep-out outline
+
     if auto_angle:
         angle_deg = _longest_edge_angle(poly)
 
@@ -355,16 +368,19 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
             border_lines = _poly_exteriors(inset)
             field = inset
 
-    # Clear zone around text/logo: subtract keep-out from the hatch field.
+    # Clear zone around text/logo: subtract keep-out from the hatch field,
+    # and keep its outline as a groove that delimits the empty area.
+    keep_rings: List[Poly] = []
     keepout = _build_keepout(exclude or [], exclude_margin_mm)
     if keepout is not None:
         try:
+            keep_rings = _all_rings(keepout.intersection(orig_poly))
             field = field.difference(keepout)
             poly = poly.difference(keepout)
         except Exception:  # noqa: BLE001
             pass
         if field.is_empty:
-            return {"pattern": [], "border": border_lines, "angle_used": angle_deg}
+            return {"pattern": [], "border": border_lines + keep_rings, "angle_used": angle_deg}
 
     lines: List[Poly] = []
     if pattern == "diamond":
@@ -379,16 +395,19 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
         else:
             lines += _hatch(field, spacing, angle_deg)
 
-    # Caulking groove: turn centerlines (and border) into thin channel pockets.
+    # Caulking groove: turn centerlines (and border + keep-out outline) into thin channel pockets.
     if groove_mm and groove_mm > 0:
         segs = [LineString(l) for l in lines if len(l) >= 2]
         for b in border_lines:
             if len(b) >= 2:
                 segs.append(LineString(b))
+        for kr in keep_rings:
+            if len(kr) >= 2:
+                segs.append(LineString(kr))
         if not segs:
             return {"pattern": [], "border": [], "angle_used": angle_deg}
         buffered = unary_union([s.buffer(groove_mm / 2.0, cap_style=2, join_style=2) for s in segs])
-        clipped = buffered.intersection(poly)
+        clipped = buffered.intersection(orig_poly)
         return {"pattern": _all_rings(clipped), "border": [], "angle_used": angle_deg}
 
-    return {"pattern": lines, "border": border_lines, "angle_used": angle_deg}
+    return {"pattern": lines, "border": border_lines + keep_rings, "angle_used": angle_deg}
