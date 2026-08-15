@@ -89,6 +89,7 @@ export default function Editor() {
   const [fillOpen, setFillOpen] = useState(false);
   const [fillPattern, setFillPattern] = useState<"diamond" | "cross" | "lines">("diamond");
   const [fillSpacing, setFillSpacing] = useState("20");
+  const [fillAngle, setFillAngle] = useState("0");
   const [fillStyle, setFillStyle] = useState<"semplice" | "bordato">("semplice");
   const [fillBorder, setFillBorder] = useState("40");
   const [fillLayer, setFillLayer] = useState<Layer>("ENGRAVE");
@@ -300,7 +301,7 @@ export default function Editor() {
       const r = await api.geoFill({
         contour,
         spacing_mm: parseFloat(fillSpacing) || 20,
-        angle_deg: 45,
+        angle_deg: parseFloat(fillAngle) || 0,
         pattern: fillPattern,
         style: fillStyle,
         border_mm: parseFloat(fillBorder) || 30,
@@ -566,7 +567,35 @@ export default function Editor() {
                 ))}
               </View>
 
-              <ModalField label="Passo (mm)" testID="fill-spacing" value={fillSpacing} onChangeText={setFillSpacing} keyboardType="decimal-pad" />
+              <ModalField
+                label={fillPattern === "lines" ? "Larghezza doga (mm)" : "Passo (mm)"}
+                testID="fill-spacing"
+                value={fillSpacing}
+                onChangeText={setFillSpacing}
+                keyboardType="decimal-pad"
+              />
+
+              <Text style={styles.modalLabel}>Orientamento doghe</Text>
+              <View style={styles.typeGrid}>
+                {([
+                  { a: "0", label: "0°" },
+                  { a: "45", label: "45°" },
+                  { a: "90", label: "90°" },
+                ] as const).map((o) => (
+                  <Pressable
+                    key={o.a}
+                    testID={`fill-angle-${o.a}`}
+                    onPress={() => setFillAngle(o.a)}
+                    style={[styles.typeChip, fillAngle === o.a && { backgroundColor: colors.surfaceInverse }]}
+                  >
+                    <Text style={[styles.typeChipText, fillAngle === o.a && { color: colors.onSurfaceInverse }]}>{o.label}</Text>
+                  </Pressable>
+                ))}
+                <View style={{ flexBasis: "100%" }} />
+                <View style={{ flex: 1 }}>
+                  <ModalField label="Angolo custom (°)" testID="fill-angle" value={fillAngle} onChangeText={setFillAngle} keyboardType="decimal-pad" />
+                </View>
+              </View>
 
               <Text style={styles.modalLabel}>Stile</Text>
               <Segmented<"semplice" | "bordato">
