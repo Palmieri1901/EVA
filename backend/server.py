@@ -26,8 +26,13 @@ import geometry_ops as geo
 import stitch as stitcher
 import storage_client as store
 import techsheet
+import assembly
+import nesting
 from dxf_builder import build_dxf
 from models import (
+    Boat,
+    BoatCreate,
+    BoatUpdate,
     Element,
     MarkerInfo,
     Project,
@@ -105,6 +110,146 @@ async def get_patterns():
 
 
 # --------------------------------------------------------------------------
+# Boats (a boat/project groups one or more mat pieces)
+# --------------------------------------------------------------------------
+async def get_boat_doc(boat_id: str) -> dict:
+    try:
+        oid = ObjectId(boat_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="ID imbarcazione non valido")
+    doc = await db.boats.find_one({"_id": oid, "deleted": {"$ne": True}})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Imbarcazione non trovata")
+    return doc
+
+
+async def _boat_pieces(boat_id: str) -> List[dict]:
+    return await db.projects.find(
+        {"boat_id": boat_id, "deleted": {"$ne": True}}
+    ).sort("created_at", 1).to_list(500)
+
+
+@api_router.post("/boats")
+async def create_boat(payload: BoatCreate):
+    boat = Boat(**payload.model_dump())
+    doc = boat.model_dump(by_alias=True, exclude={"id"})
+    res = await db.boats.insert_one(doc)
+    saved = await db.boats.find_one({"_id": res.inserted_id})
+    s = serialize(saved)
+    s["piece_count"] = 0
+    s["thumb_url"] = None
+    return s
+
+
+@api_router.get("/boats")
+async def list_boats():
+    docs = await db.boats.find({"deleted": {"$ne": True}}).sort("updated_at", -1).to_list(500)
+    out = []
+    for d in docs:
+        s = serialize(d)
+        pieces = await _boat_pieces(s["id"])
+        s["piece_count"] = len(pieces)
+        thumb = None
+        for p in pieces:
+            thumb = p.get("rectified_path") or p.get("photo_path")
+            if thumb:
+                break
+        s["thumb_url"] = file_url(thumb)
+        out.append(s)
+    return out
+
+
+@api_router.get("/boats/{boat_id}")
+async def get_boat(boat_id: str):
+    doc = await get_boat_doc(boat_id)
+    s = serialize(doc)
+    pieces = await _boat_pieces(boat_id)
+    out_pieces = []
+    for p in pieces:
+        ps = serialize(p)
+        ps["photo_url"] = file_url(p.get("photo_path"))
+        ps["rectified_url"] = file_url(p.get("rectified_path"))
+        out_pieces.append(ps)
+    s["pieces"] = out_pieces
+    return s
+
+
+@api_router.patch("/boats/{boat_id}")
+async def update_boat(boat_id: str, payload: BoatUpdate):
+    doc = await get_boat_doc(boat_id)
+    updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    updates["updated_at"] = now_iso()
+    await db.boats.update_one({"_id": doc["_id"]}, {"$set": updates})
+    saved = await db.boats.find_one({"_id": doc["_id"]})
+    return serialize(saved)
+
+
+@api_router.delete("/boats/{boat_id}")
+async def delete_boat(boat_id: str):
+    doc = await get_boat_doc(boat_id)
+    await db.boats.update_one({"_id": doc["_id"]}, {"$set": {"deleted": True, "updated_at": now_iso()}})
+    await db.projects.update_many({"boat_id": boat_id}, {"$set": {"deleted": True, "updated_at": now_iso()}})
+    return {"ok": True}
+
+
+def _boat_nested(pieces: List[dict]) -> dict:
+    items = []
+    total_area = 0.0
+    for p in pieces:
+        base, cut_polys, engrave_polys = _compute_final(p)
+        if not cut_polys:
+            continue
+        total_area += geo.area_m2(base)
+        items.append({
+            "id": str(p["_id"]),
+            "name": p.get("piece_name") or p.get("name") or "Pezzo",
+            "cut": cut_polys,
+            "engrave": engrave_polys,
+        })
+    nested = nesting.nest_pieces(items)
+    nested["total_area_m2"] = total_area
+    return nested
+
+
+@api_router.get("/boats/{boat_id}/assembly")
+async def boat_assembly(boat_id: str):
+    doc = await get_boat_doc(boat_id)
+    pieces = await _boat_pieces(boat_id)
+    nested = await run_in_threadpool(_boat_nested, pieces)
+    if nested.get("count", 0) == 0:
+        raise HTTPException(status_code=422, detail="Nessun pezzo pronto: elabora e definisci i contorni dei pezzi")
+    from datetime import datetime, timezone
+    meta = {
+        "boat_name": doc.get("name", "IMBARCAZIONE"),
+        "date": datetime.now(timezone.utc).strftime("%d/%m/%y"),
+        "total_area_m2": nested.get("total_area_m2", 0.0),
+    }
+    pdf = await run_in_threadpool(assembly.render_assembly, nested, meta)
+    spath = f"{store.APP_NAME}/assembly/{boat_id}/{uuid.uuid4()}.pdf"
+    await run_in_threadpool(store.put_object, spath, pdf, "application/pdf")
+    return {
+        "sheet_url": file_url(spath), "size": len(pdf), "count": nested["count"],
+        "overflow": nested.get("overflow", False), "total_area_m2": nested.get("total_area_m2", 0.0),
+    }
+
+
+@api_router.post("/boats/{boat_id}/nested-dxf")
+async def boat_nested_dxf(boat_id: str):
+    await get_boat_doc(boat_id)
+    pieces = await _boat_pieces(boat_id)
+    nested = await run_in_threadpool(_boat_nested, pieces)
+    if nested.get("count", 0) == 0:
+        raise HTTPException(status_code=422, detail="Nessun pezzo pronto da annidare")
+    dxf_bytes = await run_in_threadpool(build_dxf, nested["cut"], nested["engrave"])
+    dpath = f"{store.APP_NAME}/dxf/{boat_id}/nested_{uuid.uuid4()}.dxf"
+    await run_in_threadpool(store.put_object, dpath, dxf_bytes, "application/dxf")
+    return {
+        "dxf_url": file_url(dpath), "size": len(dxf_bytes), "count": nested["count"],
+        "overflow": nested.get("overflow", False),
+    }
+
+
+# --------------------------------------------------------------------------
 # Projects CRUD
 # --------------------------------------------------------------------------
 @api_router.post("/projects")
@@ -112,13 +257,21 @@ async def create_project(payload: ProjectCreate):
     proj = Project(**payload.model_dump())
     doc = proj.model_dump(by_alias=True, exclude={"id"})
     res = await db.projects.insert_one(doc)
+    if proj.boat_id:
+        try:
+            await db.boats.update_one({"_id": ObjectId(proj.boat_id)}, {"$set": {"updated_at": now_iso()}})
+        except Exception:  # noqa: BLE001
+            pass
     saved = await db.projects.find_one({"_id": res.inserted_id})
     return serialize(saved)
 
 
 @api_router.get("/projects")
-async def list_projects():
-    docs = await db.projects.find({"deleted": {"$ne": True}}).sort("updated_at", -1).to_list(500)
+async def list_projects(boat_id: Optional[str] = None):
+    query: dict = {"deleted": {"$ne": True}}
+    if boat_id:
+        query["boat_id"] = boat_id
+    docs = await db.projects.find(query).sort("created_at", 1).to_list(500)
     out = []
     for d in docs:
         s = serialize(d)

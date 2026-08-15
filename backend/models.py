@@ -58,6 +58,8 @@ class Project(BaseModel):
 
     id: Optional[PyObjectId] = Field(default=None, alias="_id")
     name: str = "Nuovo progetto"
+    boat_id: Optional[str] = None       # parent boat/project id
+    piece_name: str = "Pezzo 1"         # human name of this mat inside the boat
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
     status: str = "draft"  # draft | captured | processed | edited | exported
@@ -93,6 +95,8 @@ class Project(BaseModel):
 
 class ProjectCreate(BaseModel):
     name: str = "Nuovo progetto"
+    boat_id: Optional[str] = None
+    piece_name: str = "Pezzo 1"
     background_mode: str = "blue_on_white"
     marker_diameter_mm: float = 20.0
     ref_width_mm: float = 500.0
@@ -105,12 +109,31 @@ class ProjectCreate(BaseModel):
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
+    piece_name: Optional[str] = None
     cut_side: Optional[str] = None
     blade_offset_mm: Optional[float] = None
     fillet_radius_mm: Optional[float] = None
     contour_mm: Optional[List[List[float]]] = None
     elements: Optional[List[Element]] = None
     status: Optional[str] = None
+
+
+class Boat(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    name: str = "Nuova imbarcazione"
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+    deleted: bool = False
+
+
+class BoatCreate(BaseModel):
+    name: str = "Nuova imbarcazione"
+
+
+class BoatUpdate(BaseModel):
+    name: Optional[str] = None
 
 
 class TextRequest(BaseModel):

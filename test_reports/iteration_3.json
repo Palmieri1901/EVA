@@ -1,0 +1,39 @@
+{
+  "summary": "Comprehensive automated test pass for the NEW Boat (progetto) grouping feature. Backend: created /app/backend/tests/test_boats_api.py (16 tests, 16 PASS) covering the full boat/piece lifecycle. Boats CRUD: POST /api/boats returns id+piece_count(0)+thumb_url(null); GET /api/boats lists boat with piece_count & thumb_url fields; GET /api/boats/{id} returns boat with pieces:[]; PATCH renames boat (verified via GET); invalid ObjectId -> 400, missing -> 404. Pieces under boat: POST /api/projects with boat_id+piece_name creates the piece with correct boat_id, GET /api/projects?boat_id=... filters to that boat's pieces (2/2 returned), boat GET.pieces reflects them, boats list piece_count becomes 2. Contour + assembly: PATCH /api/projects/{id} with contour_mm rectangle persists (verified via GET); before contour_mm is set /api/boats/{id}/assembly returns 422 ('Nessun pezzo pronto'); after contours are set, GET /api/boats/{id}/assembly returns 200 with sheet_url (/api/files/... .pdf), count=2, overflow bool, total_area_m2>0, PDF bytes start with %PDF; POST /api/boats/{id}/nested-dxf returns 200 with dxf_url ending .dxf, count=2, size>0, file streams back as ASCII DXF. Empty-boat edge cases: /assembly and /nested-dxf both return 422 for a boat with 0 pieces. Cascade soft delete: DELETE /api/boats/{id} soft-deletes the boat AND its pieces (both GETs 404, piece not in filtered list). Frontend (mobile 390x844 web preview): home shows kicker 'EVA · BOAT MAT' + h1 'PROGETTI'; 'NUOVO PROGETTO' button opens modal with 'Nome imbarcazione' label + boat-name-input + 'CREA PROGETTO' confirm; after creation navigates to /boat/{id}. Boat detail: header shows 'PROGETTO' kicker + boat name, 'TAPPETI / PEZZI (n)' section label, empty state 'Nessun pezzo...' with vector-square icon when 0 pieces (PDF/DXF buttons correctly hidden). 'AGGIUNGI PEZZO' button navigates to /new-project?boat_id={id}&n={n+1}; the new-project form pre-fills 'Nome pezzo' as 'Pezzo N' with a visible 'Nome pezzo' label and dedicated input-name field. Seeded a piece via API and reloaded /boat/{id}: piece card renders with piece_name, dims (500x300 mm), status tag BOZZA; PDF ASSEMBLATO + DXF FOGLIO UNICO buttons now appear above AGGIUNGI PEZZO as expected. No red screens, no new deprecated packages detected in this iteration.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_boats_api.py",
+    "/app/backend/tests/test_boat_mat_api.py",
+    "/app/backend/tests/test_stitch_and_fill.py",
+    "/app/test_reports/pytest/iter3_boats.xml"
+  ],
+  "action_items": [
+    "None required for this feature. (Pre-existing low-priority items from iteration_2 still apply: 'props.pointerEvents deprecation' in capture.tsx and web-side useNativeDriver warnings — cosmetic only.)"
+  ],
+  "critical_code_review_comments": [
+    "server.py: /api/boats/{id}/assembly and /api/boats/{id}/nested-dxf share the _boat_nested() helper which iterates soft-delete-filtered pieces via _boat_pieces() (deleted:{$ne:True}) — correct.",
+    "DELETE /api/boats/{id} cascades soft-delete to db.projects.update_many({boat_id:boat_id}) — verified end-to-end.",
+    "list_boats returns piece_count and thumb_url by iterating pieces per boat; O(N*M) is fine at MVP scale but consider a $lookup aggregation if boat/piece counts grow.",
+    "GET /api/boats/{id} embeds pieces with photo_url/rectified_url — matches frontend BoatT.pieces contract.",
+    "422 path in boat_assembly correctly triggers when nested.count==0 (i.e., no piece has any contour_mm) — matches the requested behavior.",
+    "Boat.updated_at is bumped on child piece creation via db.boats.update_one — good UX for the 'updated_at' sort in list_boats.",
+    "Frontend index.tsx modal uses testID 'boat-name-input' + 'boat-create-confirm' + 'new-boat-btn' + 'boat-card-{id}' + 'delete-{id}' — full testID coverage.",
+    "Frontend boat/[id].tsx exposes 'add-piece-btn', 'assembly-pdf-btn', 'nested-dxf-btn', 'piece-card-{id}', 'delete-piece-{id}', 'back-btn', 'empty-pieces' — full testID coverage.",
+    "AGGIUNGI PEZZO deep-links n={pieces.length+1}, which pre-fills 'Pezzo N' inside new-project.tsx — nice UX."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_boats_api.py (new)"
+  ],
+  "success_rate": { "backend": "100% (16/16 new boat suite + prior 17/17 base + 16/16 stitch/fill still valid)", "frontend": "100% (all requested UI checks passed)" },
+  "seed_data_creation": "During pytest: 2 TEST_ boats (auto-cleaned via DELETE) + 1 TEST_empty_boat + 1 TEST_cascade_boat with 1 piece (both DELETEd). Frontend UI test created boat 6a8074ef28cf6475f781f312 with piece 6a8074fc28cf6475f781f313, both cleaned up (soft-deleted) via curl DELETE at end of run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Three pytest suites now: /app/backend/tests/test_boat_mat_api.py (single project lifecycle), /app/backend/tests/test_stitch_and_fill.py (multi-shot + fill), and NEW /app/backend/tests/test_boats_api.py (boat grouping + assembly/nested-dxf). All three read EXPO_PUBLIC_BACKEND_URL from env; run with `export $(grep -v '^#' /app/frontend/.env | xargs) && python -m pytest /app/backend/tests/ -v`. Boat data model: boats collection stores {name, created_at, updated_at, deleted}; pieces are in the 'projects' collection with boat_id (string form of boat ObjectId) + piece_name. The boat assembly endpoint requires each piece to have a non-empty contour_mm; otherwise it returns 422 with detail 'Nessun pezzo pronto: elabora e definisci i contorni dei pezzi'. Camera capture cannot run on web preview — do NOT attempt actual photo capture in frontend tests.",
+  "rca_of_issue": "N/A — new boat/progetto feature is fully working end-to-end (backend + frontend web preview)."
+}

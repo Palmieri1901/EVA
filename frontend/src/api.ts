@@ -59,6 +59,8 @@ export interface ElementT {
 export interface ProjectT {
   id: string;
   name: string;
+  boat_id?: string | null;
+  piece_name?: string;
   status: string;
   created_at: string;
   updated_at: string;
@@ -92,8 +94,32 @@ export interface ProjectT {
   elements: ElementT[];
 }
 
+export interface BoatT {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  piece_count?: number;
+  thumb_url?: string | null;
+  pieces?: ProjectT[];
+}
+
 export const api = {
-  listProjects: (): Promise<ProjectT[]> => req("/projects"),
+  // Boats (a boat groups one or more mat pieces)
+  listBoats: (): Promise<BoatT[]> => req("/boats"),
+  getBoat: (id: string): Promise<BoatT> => req(`/boats/${id}`),
+  createBoat: (body: { name: string }): Promise<BoatT> =>
+    req("/boats", { method: "POST", body: JSON.stringify(body) }),
+  updateBoat: (id: string, body: any): Promise<BoatT> =>
+    req(`/boats/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteBoat: (id: string) => req(`/boats/${id}`, { method: "DELETE" }),
+  boatAssembly: (id: string): Promise<{ sheet_url: string; size: number; count: number; overflow: boolean; total_area_m2: number }> =>
+    req(`/boats/${id}/assembly`),
+  boatNestedDxf: (id: string): Promise<{ dxf_url: string; size: number; count: number; overflow: boolean }> =>
+    req(`/boats/${id}/nested-dxf`, { method: "POST" }),
+
+  listProjects: (boatId?: string): Promise<ProjectT[]> =>
+    req(`/projects${boatId ? `?boat_id=${boatId}` : ""}`),
   getProject: (id: string): Promise<ProjectT> => req(`/projects/${id}`),
   createProject: (body: any): Promise<ProjectT> =>
     req("/projects", { method: "POST", body: JSON.stringify(body) }),

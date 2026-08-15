@@ -1,10 +1,12 @@
 import React, { useCallback, useState } from "react";
 import {
   FlatList,
+  Modal,
   Pressable,
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { Image } from "expo-image";
@@ -13,31 +15,27 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
-import { api, absUrl, ProjectT } from "@/src/api";
-import { Btn, Tag } from "@/src/components/ui";
+import { api, absUrl, BoatT } from "@/src/api";
+import { Btn } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { BORDER, colors, fonts, fontSize, space } from "@/src/theme";
 
-const STATUS_LABEL: Record<string, string> = {
-  draft: "BOZZA",
-  captured: "FOTO OK",
-  processed: "ELABORATO",
-  edited: "MODIFICATO",
-  exported: "ESPORTATO",
-};
-
-export default function Projects() {
+export default function Boats() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const toast = useToast();
-  const [projects, setProjects] = useState<ProjectT[]>([]);
+  const [boats, setBoats] = useState<BoatT[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const [createOpen, setCreateOpen] = useState(false);
+  const [boatName, setBoatName] = useState("");
+  const [creating, setCreating] = useState(false);
+
   const load = useCallback(async () => {
     try {
-      const data = await api.listProjects();
-      setProjects(data);
+      const data = await api.listBoats();
+      setBoats(data);
     } catch (e: any) {
       toast(e.message || "Errore di caricamento", "error");
     } finally {
@@ -55,38 +53,45 @@ export default function Projects() {
   const onDelete = async (id: string) => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
     try {
-      await api.deleteProject(id);
-      setProjects((p) => p.filter((x) => x.id !== id));
+      await api.deleteBoat(id);
+      setBoats((b) => b.filter((x) => x.id !== id));
       toast("Progetto eliminato", "info");
     } catch (e: any) {
       toast(e.message, "error");
     }
   };
 
-  const renderItem = ({ item }: { item: ProjectT }) => {
-    const thumb = absUrl(item.rectified_url || item.photo_url);
+  const createBoat = async () => {
+    setCreating(true);
+    try {
+      const boat = await api.createBoat({ name: boatName.trim() || "Nuova imbarcazione" });
+      setCreateOpen(false);
+      setBoatName("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      router.push(`/boat/${boat.id}` as any);
+    } catch (e: any) {
+      toast(e.message || "Errore creazione progetto", "error");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const renderItem = ({ item }: { item: BoatT }) => {
+    const thumb = absUrl(item.thumb_url);
     return (
       <Pressable
-        testID={`project-card-${item.id}`}
+        testID={`boat-card-${item.id}`}
         style={styles.card}
         onPress={() => {
           Haptics.selectionAsync().catch(() => {});
-          let route: string;
-          if (item.capture_mode === "multi" && ["draft", "captured"].includes(item.status)) {
-            route = `/shots/${item.id}`;
-          } else if (item.status === "draft") {
-            route = `/capture?id=${item.id}`;
-          } else {
-            route = `/editor/${item.id}`;
-          }
-          router.push(route as any);
+          router.push(`/boat/${item.id}` as any);
         }}
       >
         <View style={styles.thumb}>
           {thumb ? (
             <Image source={{ uri: thumb }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
           ) : (
-            <MaterialCommunityIcons name="image-off-outline" size={28} color={colors.onSurfaceTertiary} />
+            <MaterialCommunityIcons name="sail-boat" size={30} color={colors.onSurfaceTertiary} />
           )}
         </View>
         <View style={styles.cardBody}>
@@ -94,17 +99,10 @@ export default function Projects() {
             {item.name}
           </Text>
           <Text style={styles.cardMeta}>
-            {Math.round(item.ref_width_mm)} × {Math.round(item.ref_height_mm)} mm
+            {item.piece_count || 0} {item.piece_count === 1 ? "pezzo" : "pezzi"}
           </Text>
-          <Text style={styles.cardMeta}>
-            {item.background_mode === "blue_on_white" ? "NASTRO BLU" : "NASTRO BIANCO"} · Ø
-            {item.marker_diameter_mm}mm
-          </Text>
-          <View style={styles.cardTags}>
-            <Tag text={STATUS_LABEL[item.status] || item.status} color={colors.brand} />
-            {item.elements?.length ? <Tag text={`${item.elements.length} EL.`} /> : null}
-          </View>
         </View>
+        <Feather name="chevron-right" size={20} color={colors.onSurfaceTertiary} style={{ alignSelf: "center", marginRight: 4 }} />
         <Pressable
           testID={`delete-${item.id}`}
           hitSlop={10}
@@ -122,13 +120,13 @@ export default function Projects() {
       <View style={styles.header}>
         <View>
           <Text style={styles.kicker}>EVA · BOAT MAT</Text>
-          <Text style={styles.h1}>DIGITIZER</Text>
+          <Text style={styles.h1}>PROGETTI</Text>
         </View>
-        <MaterialCommunityIcons name="ruler-square-compass" size={32} color={colors.brand} />
+        <MaterialCommunityIcons name="sail-boat" size={32} color={colors.brand} />
       </View>
 
       <FlatList
-        data={projects}
+        data={boats}
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
         contentContainerStyle={{ padding: space.lg, paddingBottom: 140 }}
@@ -145,10 +143,10 @@ export default function Projects() {
         ListEmptyComponent={
           !loading ? (
             <View style={styles.empty} testID="empty-state">
-              <MaterialCommunityIcons name="vector-square" size={64} color={colors.onSurfaceTertiary} />
-              <Text style={styles.emptyTitle}>0 PROGETTI TROVATI</Text>
+              <MaterialCommunityIcons name="sail-boat" size={64} color={colors.onSurfaceTertiary} />
+              <Text style={styles.emptyTitle}>0 PROGETTI</Text>
               <Text style={styles.emptyText}>
-                Avvia una nuova digitalizzazione per estrarre la dima dalla foto.
+                Crea un progetto (imbarcazione) e aggiungi i suoi tappeti/pezzi.
               </Text>
             </View>
           ) : null
@@ -157,12 +155,42 @@ export default function Projects() {
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + space.md }]}>
         <Btn
-          testID="new-project-btn"
-          label="NUOVA DIGITALIZZAZIONE"
+          testID="new-boat-btn"
+          label="NUOVO PROGETTO"
           icon={<Feather name="plus" size={20} color={colors.onBrand} />}
-          onPress={() => router.push("/new-project")}
+          onPress={() => {
+            setBoatName("");
+            setCreateOpen(true);
+          }}
         />
       </View>
+
+      <Modal visible={createOpen} transparent animationType="slide" onRequestClose={() => setCreateOpen(false)}>
+        <View style={styles.modalRoot}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHead}>
+              <Text style={styles.modalTitle}>NUOVO PROGETTO</Text>
+              <Pressable testID="create-close" onPress={() => setCreateOpen(false)} hitSlop={10}>
+                <Feather name="x" size={22} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            <View style={{ padding: space.lg }}>
+              <Text style={styles.modalLabel}>Nome imbarcazione</Text>
+              <TextInput
+                testID="boat-name-input"
+                value={boatName}
+                onChangeText={setBoatName}
+                placeholder="Es. Azimut 55 · Rossi"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                style={styles.modalInput}
+                autoFocus
+              />
+              <View style={{ height: space.lg }} />
+              <Btn testID="boat-create-confirm" label="CREA PROGETTO" loading={creating} onPress={createBoat} />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -196,10 +224,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  cardBody: { flex: 1, padding: space.md, gap: 2 },
+  cardBody: { flex: 1, padding: space.md, gap: 4, justifyContent: "center" },
   cardTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface },
   cardMeta: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.onSurfaceSecondary },
-  cardTags: { flexDirection: "row", gap: space.sm, marginTop: space.xs },
   deleteBtn: {
     width: 44,
     alignItems: "center",
@@ -225,5 +252,21 @@ const styles = StyleSheet.create({
     borderTopWidth: BORDER,
     borderTopColor: colors.borderStrong,
     backgroundColor: colors.surface,
+  },
+  modalRoot: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.45)" },
+  modalCard: { backgroundColor: colors.surface, borderTopWidth: BORDER, borderColor: colors.borderStrong },
+  modalHead: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    padding: space.lg, borderBottomWidth: BORDER, borderBottomColor: colors.borderStrong,
+  },
+  modalTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface, letterSpacing: 1 },
+  modalLabel: {
+    fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurfaceSecondary,
+    marginBottom: space.xs, textTransform: "uppercase",
+  },
+  modalInput: {
+    borderWidth: BORDER, borderColor: colors.borderStrong, backgroundColor: colors.surface,
+    paddingHorizontal: space.md, paddingVertical: 12, fontFamily: fonts.mono,
+    fontSize: fontSize.base, color: colors.onSurface,
   },
 });

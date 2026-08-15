@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
 import { Feather } from "@expo/vector-icons";
@@ -14,8 +14,9 @@ export default function NewProject() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const toast = useToast();
+  const { boat_id, n } = useLocalSearchParams<{ boat_id?: string; n?: string }>();
 
-  const [name, setName] = useState("Nuovo progetto");
+  const [name, setName] = useState(n ? `Pezzo ${n}` : "Pezzo 1");
   const [bg, setBg] = useState<BackgroundMode>("blue_on_white");
   const [diameter, setDiameter] = useState("20");
   const [refW, setRefW] = useState("900");
@@ -39,8 +40,11 @@ export default function NewProject() {
     }
     setSaving(true);
     try {
+      const pieceName = name.trim() || (n ? `Pezzo ${n}` : "Pezzo 1");
       const proj = await api.createProject({
-        name: name.trim() || "Nuovo progetto",
+        name: pieceName,
+        piece_name: pieceName,
+        boat_id: boat_id || null,
         background_mode: bg,
         marker_diameter_mm: d,
         ref_width_mm: w,
@@ -52,7 +56,7 @@ export default function NewProject() {
       const dest = captureMode === "multi" ? `/shots/${proj.id}` : `/capture?id=${proj.id}`;
       router.replace(dest as any);
     } catch (e: any) {
-      toast(e.message || "Errore creazione progetto", "error");
+      toast(e.message || "Errore creazione pezzo", "error");
       setSaving(false);
     }
   };
@@ -63,7 +67,7 @@ export default function NewProject() {
         <Pressable testID="back-btn" onPress={() => router.back()} hitSlop={12}>
           <Feather name="arrow-left" size={24} color={colors.onSurface} />
         </Pressable>
-        <Text style={styles.title}>NUOVO PROGETTO</Text>
+        <Text style={styles.title}>NUOVO PEZZO</Text>
         <View style={{ width: 24 }} />
       </View>
 
@@ -73,11 +77,11 @@ export default function NewProject() {
         keyboardShouldPersistTaps="handled"
       >
         <Field
-          label="Nome progetto"
+          label="Nome pezzo"
           testID="input-name"
           value={name}
           onChangeText={setName}
-          placeholder="Es. Pozzetto poppa"
+          placeholder="Es. Plancetta, Pozzetto, Prua"
         />
 
         <Text style={styles.sectionLabel}>Modalità cattura</Text>

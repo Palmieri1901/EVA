@@ -101,3 +101,108 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  EVA Boat Mat Digitizer. New feature: a project (boat) contains one or more mat pieces.
+  Each piece keeps the existing single-mat flow (photo -> editor -> texture -> DXF).
+  Need: boat grouping with named pieces, an A4 panoramic PDF with all pieces auto-arranged
+  (nested), and a single EVA sheet (900x2400 mm) DXF nesting all pieces (plus single-piece DXF).
+
+backend:
+  - task: "Boat CRUD (create/list/get/patch/delete) + pieces grouping via boat_id"
+    implemented: true
+    working: true
+    file: "backend/server.py, backend/models.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "Added boats collection + endpoints. Pieces are projects with boat_id + piece_name. Verified via curl: create boat, create 2 pieces, get boat returns pieces."
+  - task: "Nesting + assembled A4 PDF (/boats/{id}/assembly) on EVA sheet 900x2400"
+    implemented: true
+    working: true
+    file: "backend/nesting.py, backend/assembly.py, backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "Shelf nesting bbox-based. PDF verified via analyze tool: title, sheet 900x2400, both pieces labeled with names+sizes, total area."
+  - task: "Nested single-sheet DXF (/boats/{id}/nested-dxf)"
+    implemented: true
+    working: true
+    file: "backend/nesting.py, backend/dxf_builder.py, backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "Combines all pieces cut+engrave translated into sheet slots. Verified 15KB DXF for 2 pieces."
+
+frontend:
+  - task: "Home lists boats + create-boat modal"
+    implemented: true
+    working: true
+    file: "frontend/app/index.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "Screenshot verified boat list + NUOVO PROGETTO."
+  - task: "Boat detail screen: piece list, add piece, assembly PDF, nested DXF"
+    implemented: true
+    working: true
+    file: "frontend/app/boat/[id].tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "Screenshot verified pieces list + PDF ASSEMBLATO + DXF FOGLIO UNICO + AGGIUNGI PEZZO buttons."
+  - task: "New piece form under boat (piece_name + boat_id)"
+    implemented: true
+    working: "NA"
+    file: "frontend/app/new-project.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Repurposed new-project to create a piece under a boat. Not yet UI-tested end-to-end (camera step needs device)."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.1"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Boat CRUD (create/list/get/patch/delete) + pieces grouping via boat_id"
+    - "Nesting + assembled A4 PDF (/boats/{id}/assembly) on EVA sheet 900x2400"
+    - "Nested single-sheet DXF (/boats/{id}/nested-dxf)"
+    - "Home lists boats + create-boat modal"
+    - "Boat detail screen: piece list, add piece, assembly PDF, nested DXF"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+    -agent: "main"
+    -message: |
+      Implemented boat-grouping feature. Please test BACKEND boat endpoints thoroughly:
+      POST /api/boats, GET /api/boats, GET /api/boats/{id}, PATCH, DELETE (cascades to pieces),
+      POST /api/projects with boat_id+piece_name, GET /api/projects?boat_id=..,
+      GET /api/boats/{id}/assembly (A4 PDF), POST /api/boats/{id}/nested-dxf.
+      For assembly/nested-dxf create a boat + 2 pieces and PATCH contour_mm before calling.
+      No auth. Backend at internal URL. For FRONTEND (web preview) test navigation only:
+      home boat list, create boat modal, open boat detail, add-piece form fields.
+      Camera capture cannot be tested on web; skip actual photo capture.

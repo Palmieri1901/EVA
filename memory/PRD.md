@@ -60,6 +60,15 @@ FastAPI condiviso; la Computer Vision gira sul backend.
   inciso se solco>0).
 - ✅ Rimossi i valori di esempio di default (testo "EVA", SVG stella, placeholder "Es. Mattia
   Yacht"): campi ora vuoti con placeholder neutri.
+- ✅ **Progetti multi-pezzo (imbarcazioni)**: un progetto = un'imbarcazione che contiene 1+ pezzi
+  (tappeti), ognuno con nome (es. Plancetta/Pozzetto) e col flusso singolo esistente. Nuova
+  collezione `boats`; i pezzi restano in `projects` con `boat_id`+`piece_name`. Schermate: home
+  lista imbarcazioni + modale creazione, `boat/[id]` con lista pezzi/aggiungi pezzo.
+- ✅ **PDF A4 panoramico assemblato** (`assembly.py` + `/boats/{id}/assembly`): tutti i pezzi
+  annidati automaticamente sul foglio EVA con nomi e quote.
+- ✅ **Nesting su foglio EVA 900×2400 mm** (`nesting.py`): DXF foglio unico con tutti i pezzi
+  annidati (`/boats/{id}/nested-dxf`), oltre al DXF per singolo pezzo. Flag overflow se superano
+  un foglio.
 
 ## Backlog (prioritized)
 - **P0**: Test reali su fresa (Fase 6), correzione manuale bordo più ricca in caso di CV fallita.
