@@ -83,13 +83,11 @@ export default function Editor() {
   const [addOpen, setAddOpen] = useState(false);
   const [elType, setElType] = useState<"text" | "track" | "rect" | "circle" | "line" | "svg">("text");
   const [elLayer, setElLayer] = useState<Layer>("ENGRAVE");
-  const [textVal, setTextVal] = useState("EVA");
+  const [textVal, setTextVal] = useState("");
   const [sizeVal, setSizeVal] = useState("40");
   const [spacingVal, setSpacingVal] = useState("15");
   const [angleVal, setAngleVal] = useState("45");
-  const [svgVal, setSvgVal] = useState(
-    '<svg viewBox="0 0 100 100"><path d="M50 5 L61 39 L97 39 L68 61 L79 95 L50 74 L21 95 L32 61 L3 39 L39 39 Z"/></svg>'
-  );
+  const [svgVal, setSvgVal] = useState("");
   const [svgFileName, setSvgFileName] = useState<string | null>(null);
   const [svgPicking, setSvgPicking] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
@@ -104,6 +102,7 @@ export default function Editor() {
   const [fillBoard, setFillBoard] = useState("0");
   const [fillStyle, setFillStyle] = useState<"semplice" | "bordato">("semplice");
   const [fillBorder, setFillBorder] = useState("40");
+  const [fillClearMargin, setFillClearMargin] = useState("15");
   const [fillLayer, setFillLayer] = useState<Layer>("ENGRAVE");
   const [fillBusy, setFillBusy] = useState(false);
 
@@ -405,6 +404,7 @@ export default function Editor() {
     groove: number;
     board: number;
     layer: Layer;
+    clearMargin?: number;
     setBusy?: (b: boolean) => void;
   }) => {
     if (contour.length < 3) {
@@ -413,6 +413,14 @@ export default function Editor() {
     }
     opts.setBusy?.(true);
     try {
+      // keep-out zones: all text + logo (svg) elements
+      const clear = opts.clearMargin ?? 0;
+      const exclude: number[][][] =
+        clear > 0
+          ? elements
+              .filter((e) => e.type === "text" || e.type === "svg")
+              .flatMap((e) => e.polylines)
+          : [];
       const r = await api.geoFill({
         contour,
         spacing_mm: opts.spacing || 20,
@@ -423,6 +431,8 @@ export default function Editor() {
         border_mm: opts.border || 30,
         groove_mm: opts.groove || 0,
         board_length_mm: opts.board || 0,
+        exclude,
+        exclude_margin_mm: clear,
         layer: opts.layer,
       });
       const el: ElementT = {
@@ -456,6 +466,7 @@ export default function Editor() {
       groove: parseFloat(fillGroove),
       board: parseFloat(fillBoard),
       layer: fillLayer,
+      clearMargin: parseFloat(fillClearMargin) || 0,
       setBusy: setFillBusy,
     });
 
@@ -469,12 +480,13 @@ export default function Editor() {
   };
 
   const applyPreset = (name: "doghe" | "diamante" | "incrociato") => {
+    const clearMargin = parseFloat(fillClearMargin) || 0;
     if (name === "doghe") {
-      runFill({ pattern: "lines", spacing: 60, angle: 0, auto: true, style: "bordato", border: 40, groove: 5, board: 400, layer: "ENGRAVE" });
+      runFill({ pattern: "lines", spacing: 60, angle: 0, auto: true, style: "bordato", border: 40, groove: 5, board: 400, layer: "ENGRAVE", clearMargin });
     } else if (name === "diamante") {
-      runFill({ pattern: "diamond", spacing: 40, angle: 45, auto: false, style: "semplice", border: 30, groove: 4, board: 0, layer: "ENGRAVE" });
+      runFill({ pattern: "diamond", spacing: 40, angle: 45, auto: false, style: "semplice", border: 30, groove: 4, board: 0, layer: "ENGRAVE", clearMargin });
     } else {
-      runFill({ pattern: "cross", spacing: 40, angle: 0, auto: false, style: "semplice", border: 30, groove: 4, board: 0, layer: "ENGRAVE" });
+      runFill({ pattern: "cross", spacing: 40, angle: 0, auto: false, style: "semplice", border: 30, groove: 4, board: 0, layer: "ENGRAVE", clearMargin });
     }
   };
 
@@ -707,7 +719,7 @@ export default function Editor() {
               </View>
 
               {elType === "text" && (
-                <ModalField label="Testo" testID="modal-text" value={textVal} onChangeText={setTextVal} />
+                <ModalField label="Testo" testID="modal-text" value={textVal} onChangeText={setTextVal} placeholder="Scrivi qui il testo" />
               )}
               {elType === "svg" && (
                 <>
@@ -731,7 +743,7 @@ export default function Editor() {
                       ✓ {svgFileName}
                     </Text>
                   ) : null}
-                  <ModalField label="SVG (path)" testID="modal-svg" value={svgVal} onChangeText={setSvgVal} multiline />
+                  <ModalField label="SVG (path)" testID="modal-svg" value={svgVal} onChangeText={setSvgVal} placeholder="Importa un file .svg o incolla qui il codice" multiline />
                 </>
               )}
               {(elType === "text" || elType === "svg" || elType === "rect" || elType === "circle" || elType === "line") && (
@@ -861,6 +873,8 @@ export default function Editor() {
               <ModalField label="Spessore solco caulking (mm)" testID="fill-groove" value={fillGroove} onChangeText={setFillGroove} keyboardType="decimal-pad" />
 
               <ModalField label="Lunghezza doga · sfalsata (mm, 0 = continua)" testID="fill-board" value={fillBoard} onChangeText={setFillBoard} keyboardType="decimal-pad" />
+
+              <ModalField label="Area pulita attorno a scritte/logo (mm, 0 = off)" testID="fill-clear" value={fillClearMargin} onChangeText={setFillClearMargin} keyboardType="decimal-pad" />
 
               <Text style={styles.modalLabel}>Stile</Text>
               <Segmented<"semplice" | "bordato">

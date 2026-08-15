@@ -210,7 +210,7 @@ export default function ExportPreview() {
             </View>
             <View style={{ padding: space.lg }}>
               <Text style={styles.fLabel}>CLIENTE</Text>
-              <TextInput testID="sheet-client" value={shClient} onChangeText={setShClient} placeholder="Es. Mattia Yacht" placeholderTextColor={colors.onSurfaceTertiary} style={styles.fInput} />
+              <TextInput testID="sheet-client" value={shClient} onChangeText={setShClient} placeholder="Es. nome cliente" placeholderTextColor={colors.onSurfaceTertiary} style={styles.fInput} />
               <Text style={styles.fLabel}>MODELLO</Text>
               <TextInput testID="sheet-model" value={shModel} onChangeText={setShModel} placeholder="Es. GEB 800" placeholderTextColor={colors.onSurfaceTertiary} style={styles.fInput} />
               <Text style={styles.fLabel}>COLORE</Text>

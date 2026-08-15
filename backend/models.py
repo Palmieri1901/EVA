@@ -149,4 +149,6 @@ class FillRequest(BaseModel):
     groove_mm: float = 0.0    # caulking groove width (0 = single centerline)
     auto_angle: bool = False  # orient planks along the longest side
     board_length_mm: float = 0.0  # >0 = staggered (brick) plank butt-joints
+    exclude: List[List[List[float]]] = Field(default_factory=list)  # text/logo polylines to keep clear
+    exclude_margin_mm: float = 0.0  # clear halo around excluded elements
     layer: str = "ENGRAVE"

@@ -53,6 +53,11 @@ FastAPI condiviso; la Computer Vision gira sul backend.
   SVG" (expo-document-picker + expo-file-system) legge un file .svg, ne estrae i tracciati <path>
   via `/api/geometry/svg` (svgpathtools) e li inserisce come elemento posizionabile/scalabile,
   con scelta layer INCISIONE/TAGLIO. Il path SVG resta anche modificabile a mano.
+- ✅ **Area pulita attorno a scritte/logo**: nel riempimento texture, campo "Area pulita attorno a
+  scritte/logo (mm)" (default 15, modificabile, 0 = off) che lascia un alone senza texture attorno
+  a TUTTE le scritte e i loghi (`fill_pattern` sottrae il buffer degli elementi text+svg dal campo).
+- ✅ Rimossi i valori di esempio di default (testo "EVA", SVG stella, placeholder "Es. Mattia
+  Yacht"): campi ora vuoti con placeholder neutri.
 
 ## Backlog (prioritized)
 - **P0**: Test reali su fresa (Fase 6), correzione manuale bordo più ricca in caso di CV fallita.

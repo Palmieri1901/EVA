@@ -308,10 +308,32 @@ def _staggered_planks(field: Polygon, plank_w: float, angle_deg: float,
     return out
 
 
+def _build_keepout(exclude: List[Poly], margin: float):
+    """Union of exclude polylines buffered by `margin` → clear-zone geometry."""
+    if not exclude:
+        return None
+    buffered = []
+    m = max(margin, 0.1)
+    for line in exclude:
+        if not line or len(line) < 2:
+            continue
+        try:
+            buffered.append(LineString(line).buffer(m, cap_style=1, join_style=1))
+        except Exception:  # noqa: BLE001
+            continue
+    if not buffered:
+        return None
+    zone = unary_union(buffered)
+    if zone.is_empty:
+        return None
+    return zone
+
+
 def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
                  pattern: str = "diamond", style: str = "semplice",
                  border_mm: float = 30.0, groove_mm: float = 0.0,
-                 auto_angle: bool = False, board_length_mm: float = 0.0) -> dict:
+                 auto_angle: bool = False, board_length_mm: float = 0.0,
+                 exclude: List[Poly] = None, exclude_margin_mm: float = 0.0) -> dict:
     poly = _ring(contour)
     if not poly.is_valid or poly.is_empty:
         poly = poly.buffer(0)
@@ -332,6 +354,17 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
                 inset = max(inset.geoms, key=lambda g: g.area)
             border_lines = _poly_exteriors(inset)
             field = inset
+
+    # Clear zone around text/logo: subtract keep-out from the hatch field.
+    keepout = _build_keepout(exclude or [], exclude_margin_mm)
+    if keepout is not None:
+        try:
+            field = field.difference(keepout)
+            poly = poly.difference(keepout)
+        except Exception:  # noqa: BLE001
+            pass
+        if field.is_empty:
+            return {"pattern": [], "border": border_lines, "angle_used": angle_deg}
 
     lines: List[Poly] = []
     if pattern == "diamond":
