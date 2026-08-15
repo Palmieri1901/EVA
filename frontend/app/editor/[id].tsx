@@ -418,7 +418,7 @@ export default function Editor() {
       const exclude: number[][][] =
         clear > 0
           ? elements
-              .filter((e) => e.type === "text" || e.type === "svg")
+              .filter((e) => e.type === "text" || e.type === "svg" || e.type === "polyline")
               .flatMap((e) => e.polylines)
           : [];
       const r = await api.geoFill({

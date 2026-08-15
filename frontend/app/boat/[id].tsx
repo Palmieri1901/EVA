@@ -2,9 +2,11 @@ import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -19,6 +21,7 @@ import * as FileSystem from "expo-file-system/legacy";
 
 import { absUrl, api, BoatT, ProjectT } from "@/src/api";
 import { Btn, Tag } from "@/src/components/ui";
+import { ExportFormatBar, ExportFmt } from "@/src/components/export-formats";
 import { useToast } from "@/src/components/toast";
 import { BORDER, colors, fonts, fontSize, space } from "@/src/theme";
 
@@ -56,7 +59,8 @@ export default function BoatDetail() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
-  const [dxfBusy, setDxfBusy] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -110,18 +114,22 @@ export default function BoatDetail() {
     }
   };
 
-  const doNestedDxf = async () => {
+  const doNestedExport = async (fmt: ExportFmt, body: any) => {
     if (!id) return;
-    setDxfBusy(true);
+    setExportBusy(true);
     try {
-      const res = await api.boatNestedDxf(id);
-      await shareFile(absUrl(res.dxf_url)!, `foglio_${id}.dxf`, "application/dxf", toast,
-        `DXF foglio unico · ${res.count} pezzi`);
+      const res = await api.exportBoatFormat(id, fmt, body);
+      const mime =
+        fmt === "svg" ? "image/svg+xml" : fmt === "png" ? "image/png"
+        : fmt === "pdf" ? "application/pdf" : fmt === "gcode" ? "text/plain" : "application/dxf";
+      await shareFile(absUrl(res.url)!, `foglio_${id}.${res.ext}`, mime, toast,
+        `Foglio ${fmt.toUpperCase()} · ${res.count} pezzi`);
       if (res.overflow) toast("⚠ I pezzi superano un foglio EVA (90×240)", "info");
+      setExportOpen(false);
     } catch (e: any) {
-      toast(e.message || "DXF foglio fallito", "error");
+      toast(e.message || "Export foglio fallito", "error");
     } finally {
-      setDxfBusy(false);
+      setExportBusy(false);
     }
   };
 
@@ -218,13 +226,9 @@ export default function BoatDetail() {
               )}
             </Pressable>
             <View style={{ width: space.md }} />
-            <Pressable testID="nested-dxf-btn" style={styles.secBtn} onPress={doNestedDxf} disabled={dxfBusy}>
-              {dxfBusy ? <ActivityIndicator size="small" color={colors.onSurface} /> : (
-                <>
-                  <MaterialCommunityIcons name="content-cut" size={16} color={colors.onSurface} />
-                  <Text style={styles.secBtnText}>DXF FOGLIO UNICO</Text>
-                </>
-              )}
+            <Pressable testID="export-sheet-btn" style={styles.secBtn} onPress={() => setExportOpen(true)}>
+              <MaterialCommunityIcons name="content-cut" size={16} color={colors.onSurface} />
+              <Text style={styles.secBtnText}>ESPORTA FOGLIO</Text>
             </Pressable>
           </View>
         )}
@@ -235,6 +239,23 @@ export default function BoatDetail() {
           onPress={() => router.push(`/new-project?boat_id=${id}&n=${pieces.length + 1}` as any)}
         />
       </View>
+
+      <Modal visible={exportOpen} transparent animationType="slide" onRequestClose={() => setExportOpen(false)}>
+        <View style={styles.modalRoot}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHead}>
+              <Text style={styles.modalTitle}>ESPORTA FOGLIO UNICO</Text>
+              <Pressable testID="export-close" onPress={() => setExportOpen(false)} hitSlop={10}>
+                <Feather name="x" size={22} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, paddingBottom: insets.bottom + space.lg }} style={{ maxHeight: 560 }}>
+              <Text style={styles.hint}>Tutti i pezzi annidati sul foglio EVA 90×240 cm</Text>
+              <ExportFormatBar busy={exportBusy} onExport={doNestedExport} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -286,4 +307,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   secBtnText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface, letterSpacing: 0.3 },
+  modalRoot: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  modalCard: { backgroundColor: colors.surface, borderTopWidth: BORDER, borderColor: colors.borderStrong },
+  modalHead: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    padding: space.lg, borderBottomWidth: BORDER, borderBottomColor: colors.borderStrong,
+  },
+  modalTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface, letterSpacing: 1 },
+  hint: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginBottom: space.md },
 });

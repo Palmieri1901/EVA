@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import Svg, { Polygon, Polyline } from "react-native-svg";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,6 +9,7 @@ import * as FileSystem from "expo-file-system/legacy";
 
 import { absUrl, api } from "@/src/api";
 import { Btn, Tag } from "@/src/components/ui";
+import { ExportFormatBar, ExportFmt } from "@/src/components/export-formats";
 import { useToast } from "@/src/components/toast";
 import { BORDER, colors, fonts, fontSize, space } from "@/src/theme";
 
@@ -22,9 +23,10 @@ export default function ExportPreview() {
 
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetBusy, setSheetBusy] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const [shClient, setShClient] = useState("");
   const [shModel, setShModel] = useState("");
   const [shColor, setShColor] = useState("");
@@ -63,28 +65,31 @@ export default function ExportPreview() {
 
   const ptsStr = (arr: Poly) => arr.map((p) => `${p[0]},${p[1]}`).join(" ");
 
-  const doExport = async () => {
+  const doExportFmt = async (fmt: ExportFmt, body: any) => {
     if (!id) return;
-    setExporting(true);
+    setExportBusy(true);
     try {
-      const res = await api.exportDxf(id);
-      const url = absUrl(res.dxf_url)!;
+      const res = await api.exportFormat(id, fmt, body);
+      const url = absUrl(res.url)!;
+      const name = `dima_${id}.${res.ext}`;
+      const mime =
+        fmt === "svg" ? "image/svg+xml" : fmt === "png" ? "image/png"
+        : fmt === "pdf" ? "application/pdf" : fmt === "gcode" ? "text/plain" : "application/dxf";
       if (Platform.OS === "web") {
         window.open(url, "_blank");
-        toast("DXF generato", "success");
       } else {
-        const fileUri = FileSystem.documentDirectory + `dima_${id}.dxf`;
+        const fileUri = FileSystem.documentDirectory + name;
         const dl = await FileSystem.downloadAsync(url, fileUri);
         if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(dl.uri, { mimeType: "application/dxf", dialogTitle: "Esporta DXF" });
-        } else {
-          toast("DXF salvato: " + dl.uri, "success");
+          await Sharing.shareAsync(dl.uri, { mimeType: mime, dialogTitle: `Esporta ${fmt.toUpperCase()}` });
         }
       }
+      toast(`Esportato ${fmt.toUpperCase()} · ${(res.size / 1024).toFixed(1)} KB`, "success");
+      setExportOpen(false);
     } catch (e: any) {
       toast(e.message || "Export fallito", "error");
     } finally {
-      setExporting(false);
+      setExportBusy(false);
     }
   };
 
@@ -191,13 +196,28 @@ export default function ExportPreview() {
         </Pressable>
         <View style={{ height: space.md }} />
         <Btn
-          testID="export-dxf-btn"
-          label="ESPORTA DXF"
-          loading={exporting}
+          testID="export-file-btn"
+          label="ESPORTA FILE"
           icon={<Feather name="share" size={20} color={colors.onBrand} />}
-          onPress={doExport}
+          onPress={() => setExportOpen(true)}
         />
       </View>
+
+      <Modal visible={exportOpen} transparent animationType="slide" onRequestClose={() => setExportOpen(false)}>
+        <View style={styles.modalRoot}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHead}>
+              <Text style={styles.modalTitle}>ESPORTA FILE</Text>
+              <Pressable testID="export-close" onPress={() => setExportOpen(false)} hitSlop={10}>
+                <Feather name="x" size={22} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, paddingBottom: insets.bottom + space.lg }} style={{ maxHeight: 560 }}>
+              <ExportFormatBar title="Formato pezzo singolo" busy={exportBusy} onExport={doExportFmt} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={() => setSheetOpen(false)}>
         <View style={styles.modalRoot}>

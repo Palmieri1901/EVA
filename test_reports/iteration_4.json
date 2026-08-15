@@ -1,0 +1,36 @@
+{
+  "summary": "Independent automated pass for the NEW multi-format exports (project + boat nested sheet), machine mode selector, LASER cut-only enforcement, and photo vectorization. Backend: created /app/backend/tests/test_exports_and_vectorize.py — 16/16 PASS. Verified POST /api/projects/{id}/export/{fmt} for dxf, svg, pdf, png, gcode: each returns url+format+ext+size, file streams back with correct magic bytes (SECTION/<svg/%PDF/\\x89PNG/G21). {cut_only:true} correctly reduces the DXF payload — ENGRAVE entities disappear, CUT entities remain, and file size drops. gcode with {flavor:'mach3', include_engrave:false, cut_depth_mm:5} returns .nc with 'flavor=mach3', 'cut_depth=5', 'M30' program end and NO ENGRAVE section. Boat nested sheet exports (POST /api/boats/{id}/export/{fmt}) work for all 5 formats + cut_only, returning count/overflow plus fetchable file. Vectorize (POST /api/vectorize multipart with a synthetic black TEAK-on-white PNG, threshold=-1, invert=true, target_width_mm=300) returns polylines (count>0), width_mm≈300, height_mm>0, preview_url (.png) and dxf_url (.dxf) — both fetchable. Blank/white image correctly returns 422. POST /api/projects/{id}/elements with type='polyline', layer='CUT' appends the element, sets status='edited' (verified via GET), preserving prior elements. Frontend (mobile 390x844 web preview): home shows FRESA CNC + LASER buttons with correct testIDs (machine-cnc, machine-laser), plus VETTORIZZA LOGO entry (vectorize-btn) — machine choice persists in AsyncStorage (localStorage key 'machine_mode') across reload. /vectorize page renders back-btn, pick-camera (FOTOCAMERA), pick-library (GALLERIA), vec-width mm input, vec-invert & vec-auto toggles, and vec-analyze button. Boat detail /boat/{id} ESPORTA FOGLIO opens the ExportFormatBar: in LASER mode only 2 chips (DXF, SVG) appear; in CNC mode all 5 (DXF, SVG, PDF, PNG, G-CODE) appear and selecting G-CODE reveals flavor-grbl/flavor-mach3 chips, gcode-engrave-toggle, the full grid of NumFields (Fresa Ø, Prof. taglio, Passata, Vel. XY, Vel. Z, Z sicurezza, Giri mandrino, Prof. incisione) and export-run. No red screens, no console errors. No new deprecated Expo packages detected in the new files (exporters.py, vectorize.py, machine.tsx, vectorize.tsx, export-formats.tsx).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_exports_and_vectorize.py",
+    "/app/test_reports/pytest/iter4_exports.xml"
+  ],
+  "action_items": [
+    "None required for the new features. (Pre-existing low-priority items from earlier iterations still apply: 'props.pointerEvents' deprecation warning in capture.tsx and web-side useNativeDriver warnings — cosmetic only.)"
+  ],
+  "critical_code_review_comments": [
+    "server.py:718 export_project_format applies (body or {}).get('cut_only') before dispatch — correct; boat variant at line 741 mirrors the same logic.",
+    "exporters.render is a clean dispatcher; dxf falls through to build_dxf so cut_only correctly propagates by passing engrave_polys=[].",
+    "to_gcode() emits M30 for mach3 vs M2 default, and skips the ENGRAVE section when include_engrave is False — matches the requested contract.",
+    "vectorize.vectorize_image raises ValueError('Nessuna forma rilevata...') → 422 via HTTPException — good UX, tests confirm 422 for blank input.",
+    "add_element endpoint bumps status to 'edited' and appends without wiping the array — verified via GET.",
+    "ExportFormatBar auto-resets fmt to 'dxf' when switching to laser (useEffect on [laser]) — good, prevents an invalid chip state.",
+    "ExportFormatBar sets body.cut_only=true implicitly when laser=true — correct default for the LASER machine mode.",
+    "MachineProvider persists via AsyncStorage under 'machine_mode' and hydrates on mount — verified via localStorage after reload."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_exports_and_vectorize.py (new)"
+  ],
+  "success_rate": { "backend": "100% (16/16 new export+vectorize suite; prior 16/16 boat suite + 17/17 base + 16/16 stitch/fill still valid)", "frontend": "100% (machine mode toggle, vectorize screen, boat export bar in LASER + CNC + G-CODE forms all verified)" },
+  "seed_data_creation": "Backend tests: 1 TEST_exports_boat + child piece (auto-cleaned via DELETE fixture teardown), 1 TEST_elements_piece (auto-cleaned in test's finally block). Frontend: 1 TEST_ui_export boat with 1 piece — cleaned up via DELETE /api/boats/{id} at end.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Four pytest suites now: /app/backend/tests/test_boat_mat_api.py (single piece lifecycle), /app/backend/tests/test_boats_api.py (boat grouping + assembly/nested-dxf), /app/backend/tests/test_stitch_and_fill.py (multi-shot + fill), NEW /app/backend/tests/test_exports_and_vectorize.py (5-format export + cut_only + vectorize + elements append). Run all: `export $(grep -v '^#' /app/frontend/.env | xargs) && python -m pytest /app/backend/tests/ -v`. Notes: (a) The DXF layer TABLES section declares 'ENGRAVE' as a layer name even when no ENGRAVE entities exist, so cut_only verification must compare occurrence counts, not absence. (b) Vectorize requires Pillow-drawn text with at least ~80px font to yield contours above min_area_frac=0.0008. (c) Machine mode ('cnc' / 'laser') persists in localStorage['machine_mode'] on web — you can force a mode by setting it then reload before opening the ExportFormatBar.",
+  "rca_of_issue": "N/A — new multi-format export, machine selector and photo vectorization features are fully working end-to-end (backend + frontend web preview)."
+}

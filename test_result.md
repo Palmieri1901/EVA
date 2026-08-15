@@ -198,6 +198,26 @@ test_plan:
 agent_communication:
     -agent: "main"
     -message: |
+      NEW ROUND — multi-format export + laser machine mode + photo vectorization.
+      Please test BACKEND thoroughly:
+      1) POST /api/projects/{id}/export/{fmt} for fmt in dxf,svg,pdf,png,gcode. Create a boat+piece,
+         PATCH contour_mm rectangle and add an ENGRAVE element, then export each format. Also test
+         body {"cut_only": true} => engrave omitted (laser). And gcode with body
+         {"gcode":{"flavor":"mach3","include_engrave":false,"cut_depth_mm":5}}.
+      2) POST /api/boats/{id}/export/{fmt} same formats + cut_only for the nested sheet.
+      3) POST /api/vectorize (multipart: file=<image>, form fields threshold=-1, invert=true,
+         target_width_mm=300). Use a synthetic black-text-on-white PNG. Expect polylines, width_mm,
+         height_mm, count>0, preview_url, dxf_url.
+      4) POST /api/projects/{id}/elements with body {type:'polyline',layer:'CUT',polylines:[[...]],params:{}}
+         appends an element and returns the project with status 'edited'.
+      FRONTEND (web preview only): home shows two machine buttons FRESA CNC / LASER (persist selection),
+      a 'VETTORIZZA LOGO / SCRITTA DA FOTO' entry that opens /vectorize screen with FOTOCAMERA/GALLERIA,
+      width mm, invert + auto-threshold toggles, ANALIZZA. Do NOT attempt real camera capture on web.
+      Export modal: on a boat detail screen 'ESPORTA FOGLIO' opens a format bar; in LASER mode only
+      DXF+SVG chips show, in CNC mode all 5 show incl. G-CODE params.
+      Earlier round (boat CRUD, assembly PDF, nested DXF) already passed 16/16.
+    -agent: "main"
+    -message: |
       Implemented boat-grouping feature. Please test BACKEND boat endpoints thoroughly:
       POST /api/boats, GET /api/boats, GET /api/boats/{id}, PATCH, DELETE (cascades to pieces),
       POST /api/projects with boat_id+piece_name, GET /api/projects?boat_id=..,

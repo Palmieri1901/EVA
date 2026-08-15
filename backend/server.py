@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 from bson import ObjectId
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, File, HTTPException, UploadFile
+from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -28,6 +28,8 @@ import storage_client as store
 import techsheet
 import assembly
 import nesting
+import exporters
+import vectorize as vec
 from dxf_builder import build_dxf
 from models import (
     Boat,
@@ -713,6 +715,113 @@ async def export_project(project_id: str):
     return {"dxf_path": dpath, "dxf_url": file_url(dpath), "size": len(dxf_bytes)}
 
 
+@api_router.post("/projects/{project_id}/export/{fmt}")
+async def export_project_format(project_id: str, fmt: str, body: dict = None):
+    doc = await get_project_doc(project_id)
+    _, cut_polys, engrave_polys = _compute_final(doc)
+    if (body or {}).get("cut_only"):
+        engrave_polys = []
+    if not cut_polys and not engrave_polys:
+        raise HTTPException(status_code=422, detail="Nessuna geometria da esportare")
+    try:
+        data, mime, ext = await run_in_threadpool(
+            exporters.render, fmt, cut_polys, engrave_polys, (body or {}).get("gcode")
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    path = f"{store.APP_NAME}/exports/{project_id}/{uuid.uuid4()}.{ext}"
+    await run_in_threadpool(store.put_object, path, data, mime)
+    if fmt == "dxf":
+        await db.projects.update_one(
+            {"_id": doc["_id"]}, {"$set": {"dxf_path": path, "status": "exported", "updated_at": now_iso()}}
+        )
+    return {"url": file_url(path), "size": len(data), "format": fmt, "ext": ext}
+
+
+@api_router.post("/boats/{boat_id}/export/{fmt}")
+async def export_boat_format(boat_id: str, fmt: str, body: dict = None):
+    await get_boat_doc(boat_id)
+    pieces = await _boat_pieces(boat_id)
+    nested = await run_in_threadpool(_boat_nested, pieces)
+    if nested.get("count", 0) == 0:
+        raise HTTPException(status_code=422, detail="Nessun pezzo pronto da esportare")
+    cut_polys = nested["cut"]
+    engrave_polys = [] if (body or {}).get("cut_only") else nested["engrave"]
+    try:
+        data, mime, ext = await run_in_threadpool(
+            exporters.render, fmt, cut_polys, engrave_polys, (body or {}).get("gcode")
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    path = f"{store.APP_NAME}/exports/{boat_id}/nested_{uuid.uuid4()}.{ext}"
+    await run_in_threadpool(store.put_object, path, data, mime)
+    return {
+        "url": file_url(path), "size": len(data), "format": fmt, "ext": ext,
+        "count": nested["count"], "overflow": nested.get("overflow", False),
+    }
+
+
+# --------------------------------------------------------------------------
+# Vectorize a logo / lettering from a photo -> polylines + DXF
+# --------------------------------------------------------------------------
+@api_router.post("/vectorize")
+async def vectorize_photo(
+    file: UploadFile = File(...),
+    threshold: int = Form(-1),
+    invert: bool = Form(True),
+    target_width_mm: float = Form(200.0),
+    simplify: float = Form(0.005),
+):
+    data = await file.read()
+    try:
+        res = await run_in_threadpool(
+            vec.vectorize_image, data, threshold, invert, target_width_mm, simplify
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    uid = uuid.uuid4()
+    preview_url = None
+    if res.get("preview"):
+        ppath = f"{store.APP_NAME}/vectorize/{uid}_preview.png"
+        await run_in_threadpool(store.put_object, ppath, res["preview"], "image/png")
+        preview_url = file_url(ppath)
+
+    dxf_bytes = await run_in_threadpool(build_dxf, res["polylines"], [])
+    dpath = f"{store.APP_NAME}/vectorize/{uid}.dxf"
+    await run_in_threadpool(store.put_object, dpath, dxf_bytes, "application/dxf")
+
+    return {
+        "polylines": res["polylines"],
+        "width_mm": res["width_mm"],
+        "height_mm": res["height_mm"],
+        "count": res["count"],
+        "preview_url": preview_url,
+        "dxf_url": file_url(dpath),
+    }
+
+
+@api_router.post("/projects/{project_id}/elements")
+async def add_element(project_id: str, payload: dict):
+    doc = await get_project_doc(project_id)
+    element = {
+        "id": payload.get("id") or str(uuid.uuid4()),
+        "type": payload.get("type", "polyline"),
+        "layer": payload.get("layer", "ENGRAVE"),
+        "polylines": payload.get("polylines", []),
+        "params": payload.get("params", {}),
+    }
+    elements = list(doc.get("elements") or [])
+    elements.append(element)
+    await db.projects.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"elements": elements, "status": "edited", "updated_at": now_iso()}},
+    )
+    saved = await db.projects.find_one({"_id": doc["_id"]})
+    return serialize(saved)
+
+
+
 # --------------------------------------------------------------------------
 # File streaming (no auth in MVP -> works on web + native)
 # --------------------------------------------------------------------------
@@ -724,7 +833,7 @@ async def get_file(file_path: str):
         logger.warning("file fetch failed %s: %s", file_path, e)
         raise HTTPException(status_code=404, detail="File non trovato")
     headers = {}
-    if file_path.endswith(".dxf") or file_path.endswith(".pdf"):
+    if file_path.rsplit(".", 1)[-1].lower() in ("dxf", "pdf", "svg", "nc", "png"):
         headers["Content-Disposition"] = f'attachment; filename="{file_path.split("/")[-1]}"'
     return Response(content=content, media_type=ctype, headers=headers)
 

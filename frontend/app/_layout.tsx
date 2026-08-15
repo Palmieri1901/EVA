@@ -9,6 +9,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { ToastProvider } from "@/src/components/toast";
+import { MachineProvider } from "@/src/machine";
 
 // Disable logbox errors etc so that users can see the app
 // and agent works as expected.
@@ -47,7 +48,9 @@ export default function RootLayout() {
       <KeyboardProvider>
         <SafeAreaProvider>
           <ToastProvider>
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#FFFFFF" } }} />
+            <MachineProvider>
+              <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#FFFFFF" } }} />
+            </MachineProvider>
           </ToastProvider>
         </SafeAreaProvider>
       </KeyboardProvider>

@@ -117,6 +117,8 @@ export const api = {
     req(`/boats/${id}/assembly`),
   boatNestedDxf: (id: string): Promise<{ dxf_url: string; size: number; count: number; overflow: boolean }> =>
     req(`/boats/${id}/nested-dxf`, { method: "POST" }),
+  exportBoatFormat: (id: string, fmt: string, body: any = {}): Promise<{ url: string; size: number; format: string; ext: string; count: number; overflow: boolean }> =>
+    req(`/boats/${id}/export/${fmt}`, { method: "POST", body: JSON.stringify(body) }),
 
   listProjects: (boatId?: string): Promise<ProjectT[]> =>
     req(`/projects${boatId ? `?boat_id=${boatId}` : ""}`),
@@ -131,6 +133,8 @@ export const api = {
   preview: (id: string): Promise<any> => req(`/projects/${id}/preview`),
   exportDxf: (id: string): Promise<{ dxf_url: string; size: number }> =>
     req(`/projects/${id}/export`, { method: "POST" }),
+  exportFormat: (id: string, fmt: string, body: any = {}): Promise<{ url: string; size: number; format: string; ext: string }> =>
+    req(`/projects/${id}/export/${fmt}`, { method: "POST", body: JSON.stringify(body) }),
   techsheet: (id: string, body: any): Promise<{ sheet_url: string; size: number; area_m2: number }> =>
     req(`/projects/${id}/techsheet`, { method: "POST", body: JSON.stringify(body) }),
   patterns: (): Promise<any[]> => req("/patterns"),
@@ -180,6 +184,35 @@ export const api = {
       body: form,
     });
     if (!res.ok) throw new Error(`Upload fallito (${res.status})`);
+    return res.json();
+  },
+
+  addElement: (projectId: string, element: any): Promise<ProjectT> =>
+    req(`/projects/${projectId}/elements`, { method: "POST", body: JSON.stringify(element) }),
+
+  async vectorize(
+    uri: string,
+    opts: { threshold?: number; invert?: boolean; target_width_mm?: number; simplify?: number } = {}
+  ): Promise<{ polylines: number[][][]; width_mm: number; height_mm: number; count: number; preview_url: string | null; dxf_url: string }> {
+    const form = new FormData();
+    const name = `vec_${Date.now()}.jpg`;
+    if (Platform.OS === "web") {
+      const blob = await (await fetch(uri)).blob();
+      form.append("file", blob, name);
+    } else {
+      // @ts-ignore native multipart shape
+      form.append("file", { uri, name, type: "image/jpeg" });
+    }
+    form.append("threshold", String(opts.threshold ?? -1));
+    form.append("invert", String(opts.invert ?? true));
+    form.append("target_width_mm", String(opts.target_width_mm ?? 200));
+    form.append("simplify", String(opts.simplify ?? 0.005));
+    const res = await fetch(`${API}/vectorize`, { method: "POST", body: form });
+    if (!res.ok) {
+      let d = `Vettorizzazione fallita (${res.status})`;
+      try { d = (await res.json()).detail || d; } catch {}
+      throw new Error(d);
+    }
     return res.json();
   },
 };

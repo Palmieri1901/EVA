@@ -69,6 +69,15 @@ FastAPI condiviso; la Computer Vision gira sul backend.
 - ✅ **Nesting su foglio EVA 900×2400 mm** (`nesting.py`): DXF foglio unico con tutti i pezzi
   annidati (`/boats/{id}/nested-dxf`), oltre al DXF per singolo pezzo. Flag overflow se superano
   un foglio.
+- ✅ **Export multi-formato** (`exporters.py` + `/projects/{id}/export/{fmt}` e `/boats/{id}/export/{fmt}`):
+  DXF, SVG, PDF (disegno pulito con quote), PNG, G-code (GRBL/Mach3 con parametri fresa
+  configurabili). Flag `cut_only` per esportare solo il TAGLIO.
+- ✅ **Selettore macchina** (home, context `machine.tsx` persistito): due pulsanti FRESA CNC / LASER.
+  In modalità LASER l'export offre solo DXF/SVG in solo-TAGLIO (per tagliare la gomma dei gommoni).
+- ✅ **Vettorizza logo/scritta da foto** (`vectorize.py` + `/api/vectorize`, schermata `/vectorize`):
+  da una foto (scuro su sfondo chiaro) traccia la silhouette (contorni esterni OpenCV), scala alla
+  larghezza reale in mm, genera DXF scaricabile e/o lo inserisce come elemento in un tappeto
+  (`/projects/{id}/elements`, layer TAGLIO/INCISIONE). Anteprima del tracciato inclusa.
 
 ## Backlog (prioritized)
 - **P0**: Test reali su fresa (Fase 6), correzione manuale bordo più ricca in caso di CV fallita.

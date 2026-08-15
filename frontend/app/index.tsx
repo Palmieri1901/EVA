@@ -18,12 +18,14 @@ import * as Haptics from "expo-haptics";
 import { api, absUrl, BoatT } from "@/src/api";
 import { Btn } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
+import { useMachine } from "@/src/machine";
 import { BORDER, colors, fonts, fontSize, space } from "@/src/theme";
 
 export default function Boats() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const toast = useToast();
+  const { machine, setMachine } = useMachine();
   const [boats, setBoats] = useState<BoatT[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -125,6 +127,37 @@ export default function Boats() {
         <MaterialCommunityIcons name="sail-boat" size={32} color={colors.brand} />
       </View>
 
+      <View style={styles.machineRow}>
+        <Pressable
+          testID="machine-cnc"
+          style={[styles.machineBtn, machine === "cnc" && styles.machineBtnOn]}
+          onPress={() => { Haptics.selectionAsync().catch(() => {}); setMachine("cnc"); }}
+        >
+          <MaterialCommunityIcons name="router" size={20} color={machine === "cnc" ? colors.onSurfaceInverse : colors.onSurface} />
+          <Text style={[styles.machineText, machine === "cnc" && styles.machineTextOn]}>FRESA CNC</Text>
+          <Text style={[styles.machineSub, machine === "cnc" && styles.machineTextOn]}>Tappeti EVA · teak</Text>
+        </Pressable>
+        <Pressable
+          testID="machine-laser"
+          style={[styles.machineBtn, machine === "laser" && styles.machineBtnOn]}
+          onPress={() => { Haptics.selectionAsync().catch(() => {}); setMachine("laser"); }}
+        >
+          <MaterialCommunityIcons name="laser-pointer" size={20} color={machine === "laser" ? colors.onSurfaceInverse : colors.onSurface} />
+          <Text style={[styles.machineText, machine === "laser" && styles.machineTextOn]}>LASER</Text>
+          <Text style={[styles.machineSub, machine === "laser" && styles.machineTextOn]}>Taglio gomma · DXF</Text>
+        </Pressable>
+      </View>
+
+      <Pressable
+        testID="vectorize-btn"
+        style={styles.vecBtn}
+        onPress={() => { Haptics.selectionAsync().catch(() => {}); router.push("/vectorize" as any); }}
+      >
+        <Feather name="camera" size={16} color={colors.onSurface} />
+        <Text style={styles.vecText}>VETTORIZZA LOGO / SCRITTA DA FOTO → DXF</Text>
+        <Feather name="chevron-right" size={18} color={colors.onSurfaceTertiary} />
+      </Pressable>
+
       <FlatList
         data={boats}
         keyExtractor={(i) => i.id}
@@ -208,6 +241,21 @@ const styles = StyleSheet.create({
   },
   kicker: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.brand, letterSpacing: 2 },
   h1: { fontFamily: fonts.display, fontSize: fontSize["3xl"], color: colors.onSurface, letterSpacing: 1 },
+  machineRow: { flexDirection: "row", gap: space.md, paddingHorizontal: space.lg, paddingTop: space.md },
+  machineBtn: {
+    flex: 1, borderWidth: BORDER, borderColor: colors.borderStrong, backgroundColor: colors.surface,
+    padding: space.md, gap: 2, alignItems: "flex-start",
+  },
+  machineBtnOn: { backgroundColor: colors.surfaceInverse },
+  machineText: { fontFamily: fonts.display, fontSize: fontSize.lg, color: colors.onSurface, letterSpacing: 0.5, marginTop: 4 },
+  machineSub: { fontFamily: fonts.mono, fontSize: 11, color: colors.onSurfaceSecondary },
+  machineTextOn: { color: colors.onSurfaceInverse },
+  vecBtn: {
+    flexDirection: "row", alignItems: "center", gap: space.sm,
+    marginHorizontal: space.lg, marginTop: space.md, paddingHorizontal: space.md, paddingVertical: 12,
+    borderWidth: BORDER, borderColor: colors.border, backgroundColor: colors.surfaceSecondary,
+  },
+  vecText: { flex: 1, fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface, letterSpacing: 0.3 },
   card: {
     flexDirection: "row",
     borderWidth: BORDER,
