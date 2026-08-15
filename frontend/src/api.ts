@@ -26,6 +26,27 @@ async function req(path: string, options: RequestInit = {}) {
 export type BackgroundMode = "blue_on_white" | "white_on_dark";
 export type CutSide = "inner" | "outer";
 export type Layer = "CUT" | "ENGRAVE";
+export type CaptureMode = "single" | "multi";
+
+export interface ShotT {
+  id: string;
+  order: number;
+  photo_path: string;
+  photo_url?: string | null;
+  n_markers: number;
+  anchored: boolean;
+}
+
+export interface StitchResult {
+  anchored: string[];
+  unanchored: string[];
+  tape_detected: boolean;
+  n_global_markers: number;
+  plane_w_mm: number;
+  plane_h_mm: number;
+  rectified_url?: string | null;
+  contour_points: number;
+}
 
 export interface ElementT {
   id: string;
@@ -48,6 +69,8 @@ export interface ProjectT {
   cut_side: CutSide;
   blade_offset_mm: number;
   fillet_radius_mm: number;
+  capture_mode: CaptureMode;
+  shots: ShotT[];
   photo_path?: string | null;
   rectified_path?: string | null;
   rectified_url?: string | null;
@@ -89,6 +112,30 @@ export const api = {
     req("/geometry/svg", { method: "POST", body: JSON.stringify(body) }),
   geoTrack: (body: any): Promise<{ polylines: number[][][] }> =>
     req("/geometry/track", { method: "POST", body: JSON.stringify(body) }),
+  geoFill: (body: any): Promise<{ polylines: number[][][]; border_count: number; line_count: number }> =>
+    req("/geometry/fill", { method: "POST", body: JSON.stringify(body) }),
+
+  // Multi-shot
+  listShots: (id: string): Promise<ShotT[]> => req(`/projects/${id}/shots`),
+  deleteShot: (id: string, shotId: string) =>
+    req(`/projects/${id}/shots/${shotId}`, { method: "DELETE" }),
+  stitch: (id: string): Promise<StitchResult> =>
+    req(`/projects/${id}/stitch`, { method: "POST" }),
+
+  async addShot(projectId: string, uri: string): Promise<ShotT> {
+    const form = new FormData();
+    const name = `shot_${Date.now()}.jpg`;
+    if (Platform.OS === "web") {
+      const blob = await (await fetch(uri)).blob();
+      form.append("file", blob, name);
+    } else {
+      // @ts-ignore native multipart shape
+      form.append("file", { uri, name, type: "image/jpeg" });
+    }
+    const res = await fetch(`${API}/projects/${projectId}/shots`, { method: "POST", body: form });
+    if (!res.ok) throw new Error(`Upload scatto fallito (${res.status})`);
+    return res.json();
+  },
 
   async uploadPhoto(projectId: string, uri: string) {
     const form = new FormData();

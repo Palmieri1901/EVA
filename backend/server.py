@@ -23,6 +23,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 import cv_pipeline as cv
 import geometry_ops as geo
+import stitch as stitcher
 import storage_client as store
 from dxf_builder import build_dxf
 from models import (
@@ -35,6 +36,7 @@ from models import (
     SvgRequest,
     TextRequest,
     TrackRequest,
+    FillRequest,
     now_iso,
 )
 
@@ -290,6 +292,139 @@ async def process_project(project_id: str):
 
 
 # --------------------------------------------------------------------------
+# Multi-shot capture & stitching (large areas up to ~2x3 m)
+# --------------------------------------------------------------------------
+def _detect_shot_markers(img_bytes: bytes, bg: str) -> dict:
+    arr = np.frombuffer(img_bytes, np.uint8)
+    bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if bgr is None:
+        raise ValueError("Immagine non decodificabile")
+    markers = cv.detect_markers(bgr, bg)
+    return {"markers_img": [[m["x"], m["y"]] for m in markers], "n_markers": len(markers)}
+
+
+def shots_with_urls(shots: list) -> list:
+    out = []
+    for s in shots or []:
+        s2 = dict(s)
+        s2["photo_url"] = file_url(s.get("photo_path"))
+        out.append(s2)
+    return out
+
+
+@api_router.post("/projects/{project_id}/shots")
+async def add_shot(project_id: str, file: UploadFile = File(...)):
+    doc = await get_project_doc(project_id)
+    data = await file.read()
+    shot_id = uuid.uuid4().hex
+    path = f"{store.APP_NAME}/shots/{project_id}/{shot_id}.jpg"
+    await run_in_threadpool(store.put_object, path, data, file.content_type or "image/jpeg")
+    try:
+        det = await run_in_threadpool(_detect_shot_markers, data, doc["background_mode"])
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    shots = doc.get("shots") or []
+    shot = {
+        "id": shot_id,
+        "order": len(shots),
+        "photo_path": path,
+        "n_markers": det["n_markers"],
+        "markers_img": det["markers_img"],
+        "anchored": False,
+    }
+    shots.append(shot)
+    await db.projects.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"shots": shots, "capture_mode": "multi", "status": "captured", "updated_at": now_iso()}},
+    )
+    shot_out = dict(shot)
+    shot_out["photo_url"] = file_url(path)
+    return shot_out
+
+
+@api_router.get("/projects/{project_id}/shots")
+async def list_shots(project_id: str):
+    doc = await get_project_doc(project_id)
+    return shots_with_urls(doc.get("shots"))
+
+
+@api_router.delete("/projects/{project_id}/shots/{shot_id}")
+async def delete_shot(project_id: str, shot_id: str):
+    doc = await get_project_doc(project_id)
+    shots = [s for s in (doc.get("shots") or []) if s.get("id") != shot_id]
+    for i, s in enumerate(shots):
+        s["order"] = i
+    await db.projects.update_one({"_id": doc["_id"]}, {"$set": {"shots": shots, "updated_at": now_iso()}})
+    return {"ok": True, "count": len(shots)}
+
+
+def _run_stitch(project: dict, shot_imgs: list) -> dict:
+    """shot_imgs: list of (shot_dict, img_bytes)."""
+    shots = []
+    for sd, img_bytes in shot_imgs:
+        arr = np.frombuffer(img_bytes, np.uint8)
+        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if bgr is None:
+            continue
+        shots.append({"id": sd["id"], "order": sd.get("order", 0), "bgr": bgr})
+    if not shots:
+        return {"error": "Nessuno scatto valido da unire."}
+    return stitcher.stitch(project, shots)
+
+
+@api_router.post("/projects/{project_id}/stitch")
+async def stitch_project(project_id: str):
+    doc = await get_project_doc(project_id)
+    shots = doc.get("shots") or []
+    if not shots:
+        raise HTTPException(status_code=400, detail="Aggiungi almeno uno scatto")
+
+    shot_imgs = []
+    for sd in shots:
+        try:
+            img_bytes, _ = await run_in_threadpool(store.get_object, sd["photo_path"])
+            shot_imgs.append((sd, img_bytes))
+        except Exception:  # noqa: BLE001
+            continue
+
+    result = await run_in_threadpool(_run_stitch, doc, shot_imgs)
+    if result.get("error"):
+        raise HTTPException(status_code=422, detail=result["error"])
+
+    updates = {
+        "contour_mm": result["contour_mm"],
+        "mm_per_px": result["mm_per_px"],
+        "rectified_w_px": result["w_px"],
+        "rectified_h_px": result["h_px"],
+        "status": "processed",
+        "updated_at": now_iso(),
+    }
+    if result.get("preview_bytes"):
+        rpath = f"{store.APP_NAME}/rectified/{project_id}/{uuid.uuid4()}.jpg"
+        await run_in_threadpool(store.put_object, rpath, result["preview_bytes"], "image/jpeg")
+        updates["rectified_path"] = rpath
+
+    anchored = set(result["anchored_ids"])
+    for s in shots:
+        s["anchored"] = s["id"] in anchored
+    updates["shots"] = shots
+
+    await db.projects.update_one({"_id": doc["_id"]}, {"$set": updates})
+    return {
+        "anchored": result["anchored_ids"],
+        "unanchored": result["unanchored_ids"],
+        "tape_detected": result["tape_detected"],
+        "n_global_markers": result["n_global_markers"],
+        "plane_w_mm": result["plane_w_mm"],
+        "plane_h_mm": result["plane_h_mm"],
+        "rectified_url": file_url(updates.get("rectified_path")),
+        "contour_points": len(result["contour_mm"]),
+    }
+
+
+
+# --------------------------------------------------------------------------
 # Geometry generation for elements
 # --------------------------------------------------------------------------
 @api_router.post("/geometry/text")
@@ -312,6 +447,19 @@ async def geometry_track(req: TrackRequest):
         geo.track_pattern, req.x, req.y, req.width_mm, req.height_mm, req.spacing_mm, req.angle_deg
     )
     return {"polylines": polys}
+
+
+@api_router.post("/geometry/fill")
+async def geometry_fill(req: FillRequest):
+    if len(req.contour) < 3:
+        raise HTTPException(status_code=422, detail="Contorno non valido per il riempimento")
+    res = await run_in_threadpool(
+        geo.fill_pattern, req.contour, req.spacing_mm, req.angle_deg, req.pattern, req.style, req.border_mm
+    )
+    polylines = (res.get("border") or []) + (res.get("pattern") or [])
+    if not polylines:
+        raise HTTPException(status_code=422, detail="Nessun riempimento generato (area troppo piccola?)")
+    return {"polylines": polylines, "border_count": len(res.get("border") or []), "line_count": len(res.get("pattern") or [])}
 
 
 # --------------------------------------------------------------------------

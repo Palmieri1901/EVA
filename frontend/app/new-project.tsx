@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
 import { Feather } from "@expo/vector-icons";
 
-import { api, BackgroundMode, CutSide } from "@/src/api";
+import { api, BackgroundMode, CaptureMode, CutSide } from "@/src/api";
 import { Btn, Field, Segmented } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { BORDER, colors, fonts, fontSize, space } from "@/src/theme";
@@ -22,6 +22,7 @@ export default function NewProject() {
   const [refH, setRefH] = useState("700");
   const [cutSide, setCutSide] = useState<CutSide>("inner");
   const [offset, setOffset] = useState("0");
+  const [captureMode, setCaptureMode] = useState<CaptureMode>("single");
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
@@ -46,8 +47,10 @@ export default function NewProject() {
         ref_height_mm: h,
         cut_side: cutSide,
         blade_offset_mm: parseFloat(offset) || 0,
+        capture_mode: captureMode,
       });
-      router.replace(`/capture?id=${proj.id}` as any);
+      const dest = captureMode === "multi" ? `/shots/${proj.id}` : `/capture?id=${proj.id}`;
+      router.replace(dest as any);
     } catch (e: any) {
       toast(e.message || "Errore creazione progetto", "error");
       setSaving(false);
@@ -76,6 +79,27 @@ export default function NewProject() {
           onChangeText={setName}
           placeholder="Es. Pozzetto poppa"
         />
+
+        <Text style={styles.sectionLabel}>Modalità cattura</Text>
+        <Segmented<CaptureMode>
+          testID="capture-mode"
+          value={captureMode}
+          onChange={setCaptureMode}
+          options={[
+            { label: "SCATTO SINGOLO", value: "single" },
+            { label: "MULTI-SCATTO", value: "multi" },
+          ]}
+        />
+        {captureMode === "multi" && (
+          <View style={[styles.infoBox, { marginTop: space.md, marginBottom: 0 }]}>
+            <Feather name="layers" size={14} color={colors.brand} />
+            <Text style={styles.infoText}>
+              Per aree fino a 2×3 m: scatta più foto sovrapposte, ognuna condividendo almeno 4
+              bollini con la precedente. L'interasse qui sotto è quello dei 4 bollini del primo scatto.
+            </Text>
+          </View>
+        )}
+        <View style={{ height: space.xl }} />
 
         <Text style={styles.sectionLabel}>Modalità sfondo / nastro</Text>
         <Segmented<BackgroundMode>
@@ -156,9 +180,9 @@ export default function NewProject() {
         <View style={[styles.footer, { paddingBottom: insets.bottom + space.md }]}>
           <Btn
             testID="start-camera-btn"
-            label="AVVIA CAMERA"
+            label={captureMode === "multi" ? "GESTISCI SCATTI" : "AVVIA CAMERA"}
             loading={saving}
-            icon={<Feather name="camera" size={20} color={colors.onBrand} />}
+            icon={<Feather name={captureMode === "multi" ? "layers" : "camera"} size={20} color={colors.onBrand} />}
             onPress={submit}
           />
         </View>

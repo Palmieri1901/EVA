@@ -71,8 +71,14 @@ export default function Projects() {
         style={styles.card}
         onPress={() => {
           Haptics.selectionAsync().catch(() => {});
-          const route =
-            item.status === "draft" ? `/capture?id=${item.id}` : `/editor/${item.id}`;
+          let route: string;
+          if (item.capture_mode === "multi" && ["draft", "captured"].includes(item.status)) {
+            route = `/shots/${item.id}`;
+          } else if (item.status === "draft") {
+            route = `/capture?id=${item.id}`;
+          } else {
+            route = `/editor/${item.id}`;
+          }
           router.push(route as any);
         }}
       >

@@ -1,0 +1,39 @@
+{
+  "summary": "Backend + frontend regression + new-feature test for Fase 5 (multi-shot stitching) and 'Riempi area con texture' (fill pattern). Backend pytest suite added at /app/backend/tests/test_stitch_and_fill.py (16 tests, 16 PASS): (a) /api/geometry/fill: diamond/semplice returns border_count=0 & line_count>0; diamond/bordato returns border_count>=1 & line_count>0 (validated polylines = border + pattern lists); cross/bordato and lines/semplice also validated; invalid contour returns 422. (b) Multi-shot flow: create project (capture_mode=multi) -> POST /shots twice with /tmp/shot1.jpg & /tmp/shot2.jpg (regenerated via /tmp/test_stitch.py) -> both n_markers>=4 -> GET /shots returns 2 with photo_urls -> POST /stitch returns anchored=[both ids], unanchored=[], contour_points>=4 (actual 8), plane_w_mm/plane_h_mm >0 (1384x884mm), rectified_url set -> DELETE /shots/{id} removes one, list confirms 1 remaining. (c) Single-shot regression: create -> POST /photo (/tmp/synthetic.jpg regenerated via /tmp/test_pipeline.py) -> POST /process (status=processed, quality valid, contour>=4) -> preview cut_count>=1 -> export size>0. Frontend Playwright (mobile 390x844): New Project shows 'Modalità cattura' segmented [SCATTO SINGOLO / MULTI-SCATTO]; selecting MULTI-SCATTO shows info box 'Per aree fino a 2×3 m' and button label switches from AVVIA CAMERA -> GESTISCI SCATTI; submit navigates to /shots/{id}; stitch button shows 'UNISCI E VETTORIALIZZA (0)' and is disabled when empty. Existing multi project 6a804ed25c6e75253e658707: 2 shot cards render with '6 bollini rilevati', tags 'OK MARKER' + 'AGGANCIATO', SCATTA/GALLERIA visible, stitch btn '(2)'; tapping stitch calls backend and navigates to /editor/{id} showing 1137.6×476.1mm rectified plane with 8 contour nodes. Editor TEXTURE mode: 'RIEMPI AREA CON TEXTURE' button opens fill modal with DIAMANTE/INCROCIATO/RIGHE, PASSO input, SEMPLICE/BORDATO, INCISIONE/TAGLIO, RIEMPI; selecting DIAMANTE+BORDATO+RIEMPI adds FILL element with ENGRAVE layer and pattern renders on canvas. Regression: 'AGGIUNGI SCRITTA / FORMA / SVG' opens the existing add-element modal with TEXT/SVG/TRACK/RECT/CIRCLE/LINE. Background image sizing (rectified_w_px*mm_per_px) works for the multi-shot project (contour and grid align). No React Native red screens; deprecated packages: none new.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "capture.tsx / overlay Views", "issue": "Deprecation warning still in console: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Reference: /app/frontend/app/capture.tsx (carried from prev iteration)"},
+      {"component": "Animated (useNativeDriver on web)", "issue": "Console warning 'Animated: useNativeDriver is not supported because the native animated module is missing' — cosmetic on web preview; consider gating useNativeDriver:true behind Platform.OS !== 'web'"}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_stitch_and_fill.py",
+    "/app/backend/tests/test_boat_mat_api.py",
+    "/app/test_reports/pytest/iter2_results.xml"
+  ],
+  "action_items": [
+    "(Low) Silence 'props.pointerEvents is deprecated' warnings by moving pointerEvents to style in capture.tsx.",
+    "(Low) Gate useNativeDriver:true behind Platform.OS !== 'web' to remove console warning on web preview."
+  ],
+  "critical_code_review_comments": [
+    "stitch.py correctly anchors first shot via 4 corner markers -> known ref rectangle and iteratively matches subsequent shots via RANSAC similarity upgraded to homography with >=4 pairs — matches the problem statement.",
+    "geometry_ops.fill_pattern implements 'bordato' via poly.buffer(-border_mm) inset and clips hatching to inset field for both DIAMOND (2 hatches ±angle), CROSS (angle & angle+90), LINES; polylines returned to caller = border + pattern (server returns border_count/line_count separately).",
+    "server.py /api/geometry/fill correctly returns 422 when contour has <3 points.",
+    "Frontend TexturePanel exposes both 'RIEMPI AREA CON TEXTURE' (fill-area-btn) and 'AGGIUNGI SCRITTA / FORMA / SVG' (add-element-btn) — no regression to prior element flow.",
+    "Frontend new-project.tsx correctly routes to /shots/{id} when capture_mode=multi and /capture?id={id} when single."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_stitch_and_fill.py (new)",
+    "/tmp/test_pipeline.py (recreated; ephemeral)"
+  ],
+  "success_rate": { "backend": "100% (16/16 new + 17/17 regression suite still valid)", "frontend": "100% (all requested UI checks passed)" },
+  "seed_data_creation": "Created and cleaned (soft-deleted) 2 TEST_ projects during pytest. UI test project TEST_UI_multishot (id 6a8050a73a1f018c23a89942) left behind — main agent may delete if desired.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Two pytest suites: /app/backend/tests/test_boat_mat_api.py (base flow) + /app/backend/tests/test_stitch_and_fill.py (multi-shot + fill). Both self-regenerate their /tmp images via /tmp/test_pipeline.py and /tmp/test_stitch.py. /tmp/test_pipeline.py was recreated in /tmp during this run — if it disappears, re-create the same script (produces /tmp/synthetic.jpg with 4 corner + 1 center marker & blue tape). Multi project id 6a804ed25c6e75253e658707 is anchored & stitched (2 shots, 8-pt contour, 1384x884mm plane); use it for editor UI regression. Fill endpoint expects body {contour:[[x,y]...], spacing_mm, angle_deg, pattern:'diamond'|'cross'|'lines', style:'semplice'|'bordato', border_mm, layer}.",
+  "rca_of_issue": "N/A — all requested features working."
+}

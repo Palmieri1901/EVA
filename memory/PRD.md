@@ -41,6 +41,14 @@ FastAPI condiviso; la Computer Vision gira sul backend.
 - ✅ Frontend: Projects, NewProject (form + tastiera), Capture (camera+HUD+livella+galleria),
   Editor (canvas SVG pan/zoom/tap-select, nudge, add/del punti, offset/raccordo, pannello texture,
   modale aggiunta elementi), Export (wireframe + share/download DXF). Design brutalista applicato.
+- ✅ **Fase 5 Multi-scatto & stitching** (`stitch.py`): primo scatto ancora il piano dal riquadro
+  di riferimento (interasse noto), scatti successivi agganciati via marker condivisi (RANSAC
+  similarity → omografia con ≥4 condivisi), warp+merge maschere nastro in un raster globale,
+  contorno completo vettorizzato. Endpoint shots CRUD + /stitch. UI: toggle singolo/multi in
+  NewProject, schermata /shots/[id], modalità scatto della camera. Validato 2/2 scatti sintetici.
+- ✅ **Riempi area con texture** (`geometry_ops.fill_pattern` + /api/geometry/fill): riempie il
+  contorno (clip poligono) con texture teak diamante/incrociato/righe, stile SEMPLICE o BORDATO
+  (cornice inset + campo), layer INCISIONE/TAGLIO. Pulsante "RIEMPI AREA" nell'editor.
 
 ## Backlog (prioritized)
 - **P0**: Test reali su fresa (Fase 6), correzione manuale bordo più ricca in caso di CV fallita.

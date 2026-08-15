@@ -117,7 +117,7 @@ export default function ExportPreview() {
             )
           )}
         </Svg>
-        <View style={styles.legend} pointerEvents="none">
+        <View style={[styles.legend, { pointerEvents: "none" }]}>
           <View style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: colors.cut }]} />
             <Text style={styles.legendText}>CUT</Text>

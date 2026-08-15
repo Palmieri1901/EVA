@@ -22,7 +22,8 @@ import { useToast } from "@/src/components/toast";
 import { BORDER, colors, fonts, fontSize, space } from "@/src/theme";
 
 export default function Capture() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, shot } = useLocalSearchParams<{ id: string; shot?: string }>();
+  const shotMode = shot === "1";
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const toast = useToast();
@@ -52,6 +53,14 @@ export default function Capture() {
     if (!id) return;
     setBusy(true);
     try {
+      if (shotMode) {
+        setBusyMsg("Caricamento scatto & rilevamento marker...");
+        const s = await api.addShot(id, uri);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        toast(`Scatto aggiunto · ${s.n_markers} bollini`, "success");
+        router.back();
+        return;
+      }
       setBusyMsg("Caricamento foto...");
       await api.uploadPhoto(id, uri);
       setBusyMsg("Rilevamento marker & bordo nastro...");

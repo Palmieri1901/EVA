@@ -8,9 +8,10 @@ from typing import List
 import matplotlib
 
 matplotlib.use("Agg")
+import math  # noqa: E402
 from matplotlib.font_manager import FontProperties  # noqa: E402
 from matplotlib.textpath import TextPath  # noqa: E402
-from shapely.geometry import Polygon  # noqa: E402
+from shapely.geometry import LineString, Polygon  # noqa: E402
 from svgpathtools import parse_path  # noqa: E402
 
 logger = logging.getLogger("geometry")
@@ -156,8 +157,6 @@ def svg_to_polylines(svg: str, width_mm: float, x: float, y: float, samples: int
 # --------------------------------------------------------------------------
 def track_pattern(x: float, y: float, width_mm: float, height_mm: float,
                   spacing_mm: float, angle_deg: float) -> List[Poly]:
-    import math
-
     spacing_mm = max(spacing_mm, 2.0)
     ang = math.radians(angle_deg)
     dx, dy = math.cos(ang), math.sin(ang)
@@ -173,8 +172,6 @@ def track_pattern(x: float, y: float, width_mm: float, height_mm: float,
         py = cy + ny * off
         p1 = (px - dx * diag, py - dy * diag)
         p2 = (px + dx * diag, py + dy * diag)
-        from shapely.geometry import LineString
-
         seg = LineString([p1, p2]).intersection(clip)
         if seg.is_empty or seg.geom_type != "LineString":
             continue
@@ -182,3 +179,75 @@ def track_pattern(x: float, y: float, width_mm: float, height_mm: float,
         if len(coords) >= 2:
             lines.append([[float(a), float(b)] for a, b in coords])
     return lines
+
+
+# --------------------------------------------------------------------------
+# Fill area with texture, clipped to an arbitrary contour polygon.
+# pattern: "diamond" (teak lattice), "cross" (orthogonal), "lines" (planks)
+# style:   "semplice" (fill to edge) | "bordato" (inset border frame + field)
+# --------------------------------------------------------------------------
+def _hatch(field: Polygon, spacing: float, angle_deg: float) -> List[Poly]:
+    minx, miny, maxx, maxy = field.bounds
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+    diag = math.hypot(maxx - minx, maxy - miny) + spacing
+    ang = math.radians(angle_deg)
+    dx, dy = math.cos(ang), math.sin(ang)
+    nx, ny = -dy, dx
+    out: List[Poly] = []
+    n = int(diag / spacing) + 2
+    for i in range(-n, n + 1):
+        off = i * spacing
+        px, py = cx + nx * off, cy + ny * off
+        seg = LineString([(px - dx * diag, py - dy * diag), (px + dx * diag, py + dy * diag)])
+        inter = seg.intersection(field)
+        if inter.is_empty:
+            continue
+        geoms = list(inter.geoms) if inter.geom_type.startswith("Multi") else [inter]
+        for g in geoms:
+            if g.geom_type == "LineString" and len(g.coords) >= 2:
+                out.append([[float(a), float(b)] for a, b in g.coords])
+    return out
+
+
+def _poly_exteriors(geom) -> List[Poly]:
+    rings: List[Poly] = []
+    if geom.is_empty:
+        return rings
+    parts = list(geom.geoms) if geom.geom_type == "MultiPolygon" else [geom]
+    for p in parts:
+        rings.append([[float(x), float(y)] for x, y in p.exterior.coords])
+    return rings
+
+
+def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
+                 pattern: str = "diamond", style: str = "semplice",
+                 border_mm: float = 30.0) -> dict:
+    poly = _ring(contour)
+    if not poly.is_valid or poly.is_empty:
+        poly = poly.buffer(0)
+    if poly.is_empty:
+        return {"pattern": [], "border": []}
+
+    spacing = max(spacing_mm, 3.0)
+    border_lines: List[Poly] = []
+    field = poly
+
+    if style == "bordato" and border_mm > 0:
+        inset = poly.buffer(-border_mm, join_style=2)
+        if not inset.is_empty:
+            if inset.geom_type == "MultiPolygon":
+                inset = max(inset.geoms, key=lambda g: g.area)
+            border_lines = _poly_exteriors(inset)
+            field = inset
+
+    lines: List[Poly] = []
+    if pattern == "diamond":
+        lines += _hatch(field, spacing, angle_deg)
+        lines += _hatch(field, spacing, -angle_deg)
+    elif pattern == "cross":
+        lines += _hatch(field, spacing, angle_deg)
+        lines += _hatch(field, spacing, angle_deg + 90)
+    else:  # lines / planks
+        lines += _hatch(field, spacing, angle_deg)
+
+    return {"pattern": lines, "border": border_lines}

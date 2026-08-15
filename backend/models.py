@@ -70,6 +70,8 @@ class Project(BaseModel):
     cut_side: str = "inner"  # inner | outer
     blade_offset_mm: float = 0.0
     fillet_radius_mm: float = 0.0
+    capture_mode: str = "single"  # single | multi
+    shots: List[dict] = Field(default_factory=list)
 
     # capture / processing
     photo_path: Optional[str] = None
@@ -98,6 +100,7 @@ class ProjectCreate(BaseModel):
     cut_side: str = "inner"
     blade_offset_mm: float = 0.0
     fillet_radius_mm: float = 0.0
+    capture_mode: str = "single"
 
 
 class ProjectUpdate(BaseModel):
@@ -133,4 +136,14 @@ class TrackRequest(BaseModel):
     height_mm: float = 100.0
     spacing_mm: float = 15.0
     angle_deg: float = 45.0
+    layer: str = "ENGRAVE"
+
+
+class FillRequest(BaseModel):
+    contour: List[List[float]]
+    spacing_mm: float = 15.0
+    angle_deg: float = 45.0
+    pattern: str = "diamond"  # diamond | cross | lines
+    style: str = "semplice"   # semplice | bordato
+    border_mm: float = 30.0
     layer: str = "ENGRAVE"

@@ -85,6 +85,15 @@ export default function Editor() {
   );
   const [addBusy, setAddBusy] = useState(false);
 
+  // fill-area modal
+  const [fillOpen, setFillOpen] = useState(false);
+  const [fillPattern, setFillPattern] = useState<"diamond" | "cross" | "lines">("diamond");
+  const [fillSpacing, setFillSpacing] = useState("20");
+  const [fillStyle, setFillStyle] = useState<"semplice" | "bordato">("semplice");
+  const [fillBorder, setFillBorder] = useState("40");
+  const [fillLayer, setFillLayer] = useState<Layer>("ENGRAVE");
+  const [fillBusy, setFillBusy] = useState(false);
+
   const load = useCallback(async () => {
     if (!id) return;
     try {
@@ -281,9 +290,41 @@ export default function Editor() {
     await save({ elements: next });
   };
 
+  const confirmFill = async () => {
+    if (contour.length < 3) {
+      toast("Contorno non valido", "error");
+      return;
+    }
+    setFillBusy(true);
+    try {
+      const r = await api.geoFill({
+        contour,
+        spacing_mm: parseFloat(fillSpacing) || 20,
+        angle_deg: 45,
+        pattern: fillPattern,
+        style: fillStyle,
+        border_mm: parseFloat(fillBorder) || 30,
+        layer: fillLayer,
+      });
+      const el: ElementT = { id: uid(), type: "fill", layer: fillLayer, polylines: r.polylines, params: { pattern: fillPattern, style: fillStyle } };
+      const next = [...elements, el];
+      setElements(next);
+      await save({ elements: next });
+      setFillOpen(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      toast(`Area riempita · ${r.polylines.length} tracciati`, "success");
+    } catch (e: any) {
+      toast(e.message || "Riempimento fallito", "error");
+    } finally {
+      setFillBusy(false);
+    }
+  };
+
   const bb = useMemo(() => bboxOf(contour), [contour]);
   const perim = useMemo(() => perimeter(contour), [contour]);
   const rectUrl = absUrl(project?.rectified_url);
+  const imgW = project && project.rectified_w_px > 0 ? project.rectified_w_px * project.mm_per_px : project?.ref_width_mm || 0;
+  const imgH = project && project.rectified_h_px > 0 ? project.rectified_h_px * project.mm_per_px : project?.ref_height_mm || 0;
 
   // grid lines
   const gridLines = useMemo(() => {
@@ -334,8 +375,8 @@ export default function Editor() {
                 href={{ uri: rectUrl }}
                 x={0}
                 y={0}
-                width={project.ref_width_mm}
-                height={project.ref_height_mm}
+                width={imgW}
+                height={imgH}
                 preserveAspectRatio="none"
                 opacity={0.55}
               />
@@ -389,7 +430,7 @@ export default function Editor() {
             <MaterialCommunityIcons name="fit-to-screen-outline" size={18} color={colors.onSurface} />
           </Pressable>
         </View>
-        <View style={styles.gridBadge} pointerEvents="none">
+        <View style={[styles.gridBadge, { pointerEvents: "none" }]}>
           <Text style={styles.gridBadgeText}>GRID {gridStep}mm</Text>
         </View>
       </View>
@@ -426,7 +467,7 @@ export default function Editor() {
             }}
           />
         ) : (
-          <TexturePanel elements={elements} onAdd={() => setAddOpen(true)} onDelete={delElement} />
+          <TexturePanel elements={elements} onAdd={() => setAddOpen(true)} onFill={() => setFillOpen(true)} onDelete={delElement} />
         )}
       </View>
 
@@ -491,6 +532,69 @@ export default function Editor() {
               />
               <View style={{ height: space.lg }} />
               <Btn testID="modal-confirm" label="AGGIUNGI" loading={addBusy} onPress={confirmAdd} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* fill-area modal */}
+      <Modal visible={fillOpen} transparent animationType="slide" onRequestClose={() => setFillOpen(false)}>
+        <View style={styles.modalRoot}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHead}>
+              <Text style={styles.modalTitle}>RIEMPI AREA</Text>
+              <Pressable testID="fill-close" onPress={() => setFillOpen(false)} hitSlop={10}>
+                <Feather name="x" size={22} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg }}>
+              <Text style={styles.modalLabel}>Texture</Text>
+              <View style={styles.typeGrid}>
+                {([
+                  { k: "diamond", label: "DIAMANTE" },
+                  { k: "cross", label: "INCROCIATO" },
+                  { k: "lines", label: "RIGHE" },
+                ] as const).map((t) => (
+                  <Pressable
+                    key={t.k}
+                    testID={`fill-pattern-${t.k}`}
+                    onPress={() => setFillPattern(t.k)}
+                    style={[styles.typeChip, fillPattern === t.k && { backgroundColor: colors.surfaceInverse }]}
+                  >
+                    <Text style={[styles.typeChipText, fillPattern === t.k && { color: colors.onSurfaceInverse }]}>{t.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <ModalField label="Passo (mm)" testID="fill-spacing" value={fillSpacing} onChangeText={setFillSpacing} keyboardType="decimal-pad" />
+
+              <Text style={styles.modalLabel}>Stile</Text>
+              <Segmented<"semplice" | "bordato">
+                testID="fill-style"
+                value={fillStyle}
+                onChange={setFillStyle}
+                options={[
+                  { label: "SEMPLICE", value: "semplice" },
+                  { label: "BORDATO", value: "bordato" },
+                ]}
+              />
+              <View style={{ height: space.md }} />
+              {fillStyle === "bordato" && (
+                <ModalField label="Margine bordo (mm)" testID="fill-border" value={fillBorder} onChangeText={setFillBorder} keyboardType="decimal-pad" />
+              )}
+
+              <Text style={styles.modalLabel}>Layer DXF</Text>
+              <Segmented<Layer>
+                testID="fill-layer"
+                value={fillLayer}
+                onChange={setFillLayer}
+                options={[
+                  { label: "INCISIONE", value: "ENGRAVE" },
+                  { label: "TAGLIO", value: "CUT" },
+                ]}
+              />
+              <View style={{ height: space.lg }} />
+              <Btn testID="fill-confirm" label="RIEMPI" loading={fillBusy} onPress={confirmFill} />
             </ScrollView>
           </View>
         </View>
@@ -582,13 +686,18 @@ function PointsPanel(props: any) {
   );
 }
 
-function TexturePanel({ elements, onAdd, onDelete }: any) {
+function TexturePanel({ elements, onAdd, onFill, onDelete }: any) {
   return (
     <View>
-      <Btn testID="add-element-btn" label="AGGIUNGI TEXTURE / SCRITTA / FORMA" icon={<Feather name="plus" size={18} color={colors.onBrand} />} onPress={onAdd} />
-      <ScrollView style={{ maxHeight: 140, marginTop: space.sm }}>
+      <Pressable testID="fill-area-btn" onPress={onFill} style={styles.fillBtn}>
+        <MaterialCommunityIcons name="grid" size={18} color={colors.onSurfaceInverse} />
+        <Text style={styles.fillText}>RIEMPI AREA CON TEXTURE</Text>
+      </Pressable>
+      <View style={{ height: space.sm }} />
+      <Btn testID="add-element-btn" label="AGGIUNGI SCRITTA / FORMA / SVG" icon={<Feather name="plus" size={18} color={colors.onBrand} />} onPress={onAdd} />
+      <ScrollView style={{ maxHeight: 120, marginTop: space.sm }}>
         {elements.length === 0 ? (
-          <Text style={styles.emptyEl}>Nessun elemento. Aggiungi incisioni o tagli.</Text>
+          <Text style={styles.emptyEl}>Nessun elemento. Riempi l'area o aggiungi incisioni/tagli.</Text>
         ) : (
           elements.map((el: ElementT) => (
             <View key={el.id} style={styles.elRow} testID={`element-${el.id}`}>
@@ -660,6 +769,12 @@ const styles = StyleSheet.create({
   },
   applyText: { fontFamily: fonts.display, fontSize: fontSize.base, color: colors.onBrand },
   emptyEl: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, paddingVertical: space.md },
+  fillBtn: {
+    flexDirection: "row", gap: space.sm, alignItems: "center", justifyContent: "center",
+    backgroundColor: colors.surfaceInverse, borderWidth: BORDER, borderColor: colors.borderStrong,
+    paddingVertical: space.md,
+  },
+  fillText: { fontFamily: fonts.display, fontSize: fontSize.base, color: colors.onSurfaceInverse, letterSpacing: 0.5 },
   elRow: {
     flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 8,
     borderBottomWidth: 1, borderBottomColor: colors.divider,
