@@ -253,10 +253,56 @@ def _longest_edge_angle(poly: Polygon) -> float:
     return best_ang
 
 
+def _staggered_planks(field: Polygon, plank_w: float, angle_deg: float,
+                      board_len: float, stagger_frac: float = 0.5) -> List[Poly]:
+    """Brick-laid planks: long grooves between rows + staggered butt joints."""
+    minx, miny, maxx, maxy = field.bounds
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+    ang = math.radians(angle_deg)
+    dx, dy = math.cos(ang), math.sin(ang)
+    nx, ny = -dy, dx
+    corners = [(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy)]
+    us = [(px - cx) * dx + (py - cy) * dy for px, py in corners]
+    vs = [(px - cx) * nx + (py - cy) * ny for px, py in corners]
+    umin, umax = min(us) - plank_w, max(us) + plank_w
+    vmin, vmax = min(vs) - plank_w, max(vs) + plank_w
+
+    def to_xy(u, v):
+        return (cx + dx * u + nx * v, cy + dy * u + ny * v)
+
+    segs: List[LineString] = []
+    k0 = int(math.floor(vmin / plank_w))
+    k1 = int(math.ceil(vmax / plank_w))
+    row = 0
+    for k in range(k0, k1 + 1):
+        v = k * plank_w
+        segs.append(LineString([to_xy(umin, v), to_xy(umax, v)]))  # long groove
+        if board_len > 0:
+            v0, v1 = k * plank_w, (k + 1) * plank_w
+            offset = ((row * stagger_frac) % 1.0) * board_len
+            m0 = int(math.floor((umin - offset) / board_len))
+            m1 = int(math.ceil((umax - offset) / board_len))
+            for m in range(m0, m1 + 1):
+                u = offset + m * board_len
+                segs.append(LineString([to_xy(u, v0), to_xy(u, v1)]))  # butt joint
+        row += 1
+
+    out: List[Poly] = []
+    for s in segs:
+        inter = s.intersection(field)
+        if inter.is_empty:
+            continue
+        geoms = list(inter.geoms) if inter.geom_type.startswith("Multi") else [inter]
+        for g in geoms:
+            if g.geom_type == "LineString" and len(g.coords) >= 2:
+                out.append([[float(a), float(b)] for a, b in g.coords])
+    return out
+
+
 def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
                  pattern: str = "diamond", style: str = "semplice",
                  border_mm: float = 30.0, groove_mm: float = 0.0,
-                 auto_angle: bool = False) -> dict:
+                 auto_angle: bool = False, board_length_mm: float = 0.0) -> dict:
     poly = _ring(contour)
     if not poly.is_valid or poly.is_empty:
         poly = poly.buffer(0)
@@ -286,7 +332,10 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
         lines += _hatch(field, spacing, angle_deg)
         lines += _hatch(field, spacing, angle_deg + 90)
     else:  # lines / planks
-        lines += _hatch(field, spacing, angle_deg)
+        if board_length_mm and board_length_mm > 0:
+            lines += _staggered_planks(field, spacing, angle_deg, board_length_mm, 0.5)
+        else:
+            lines += _hatch(field, spacing, angle_deg)
 
     # Caulking groove: turn centerlines (and border) into thin channel pockets.
     if groove_mm and groove_mm > 0:

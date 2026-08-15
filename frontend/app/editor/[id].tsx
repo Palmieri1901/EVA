@@ -25,6 +25,9 @@ import { BORDER, colors, fonts, fontSize, space } from "@/src/theme";
 
 type Pt = number[];
 const uid = () => `${Date.now()}_${Math.floor(Math.random() * 1e5)}`;
+const TEAK = "#C08A3E";
+const TEAK_EDGE = "#6B4A1F";
+const CAULK = "#2B2622";
 
 function bboxOf(pts: Pt[]) {
   if (!pts.length) return { minX: 0, minY: 0, w: 100, h: 100, cx: 50, cy: 50 };
@@ -62,6 +65,7 @@ export default function Editor() {
   const [selNode, setSelNode] = useState<number | null>(null);
   const [mode, setMode] = useState<"points" | "texture">("points");
   const [step, setStep] = useState(1);
+  const [teak, setTeak] = useState(false);
   const [offset, setOffset] = useState("0");
   const [fillet, setFillet] = useState("0");
   const [loading, setLoading] = useState(true);
@@ -92,6 +96,7 @@ export default function Editor() {
   const [fillAngle, setFillAngle] = useState("0");
   const [fillAuto, setFillAuto] = useState(false);
   const [fillGroove, setFillGroove] = useState("4");
+  const [fillBoard, setFillBoard] = useState("0");
   const [fillStyle, setFillStyle] = useState<"semplice" | "bordato">("semplice");
   const [fillBorder, setFillBorder] = useState("40");
   const [fillLayer, setFillLayer] = useState<Layer>("ENGRAVE");
@@ -301,6 +306,7 @@ export default function Editor() {
     style: "semplice" | "bordato";
     border: number;
     groove: number;
+    board: number;
     layer: Layer;
     setBusy?: (b: boolean) => void;
   }) => {
@@ -319,6 +325,7 @@ export default function Editor() {
         style: opts.style,
         border_mm: opts.border || 30,
         groove_mm: opts.groove || 0,
+        board_length_mm: opts.board || 0,
         layer: opts.layer,
       });
       const el: ElementT = {
@@ -350,17 +357,18 @@ export default function Editor() {
       style: fillStyle,
       border: parseFloat(fillBorder),
       groove: parseFloat(fillGroove),
+      board: parseFloat(fillBoard),
       layer: fillLayer,
       setBusy: setFillBusy,
     });
 
   const applyPreset = (name: "doghe" | "diamante" | "incrociato") => {
     if (name === "doghe") {
-      runFill({ pattern: "lines", spacing: 60, angle: 0, auto: true, style: "bordato", border: 40, groove: 5, layer: "ENGRAVE" });
+      runFill({ pattern: "lines", spacing: 60, angle: 0, auto: true, style: "bordato", border: 40, groove: 5, board: 400, layer: "ENGRAVE" });
     } else if (name === "diamante") {
-      runFill({ pattern: "diamond", spacing: 40, angle: 45, auto: false, style: "semplice", border: 30, groove: 4, layer: "ENGRAVE" });
+      runFill({ pattern: "diamond", spacing: 40, angle: 45, auto: false, style: "semplice", border: 30, groove: 4, board: 0, layer: "ENGRAVE" });
     } else {
-      runFill({ pattern: "cross", spacing: 40, angle: 0, auto: false, style: "semplice", border: 30, groove: 4, layer: "ENGRAVE" });
+      runFill({ pattern: "cross", spacing: 40, angle: 0, auto: false, style: "semplice", border: 30, groove: 4, board: 0, layer: "ENGRAVE" });
     }
   };
 
@@ -414,53 +422,89 @@ export default function Editor() {
       <View style={styles.canvasWrap} onLayout={(e) => setCanvas({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
         <GestureDetector gesture={composed}>
           <Svg width="100%" height="100%" viewBox={`${vb.x} ${vb.y} ${vb.w} ${vh}`}>
-            {rectUrl && project ? (
-              <SvgImage
-                href={{ uri: rectUrl }}
-                x={0}
-                y={0}
-                width={imgW}
-                height={imgH}
-                preserveAspectRatio="none"
-                opacity={0.55}
-              />
-            ) : null}
-            <G>
-              {gridLines.map((l, i) => (
-                <Line key={i} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke={colors.divider} strokeWidth={sw * 0.5} />
-              ))}
-            </G>
-            {/* elements */}
-            {elements.map((el) =>
-              el.polylines.map((pl, j) => (
-                <Polyline
-                  key={`${el.id}_${j}`}
-                  points={ptsStr(pl)}
-                  fill="none"
-                  stroke={el.layer === "CUT" ? colors.cut : colors.engrave}
-                  strokeWidth={sw}
-                />
-              ))
+            {teak ? (
+              <>
+                {contour.length >= 3 && (
+                  <Polygon points={ptsStr(contour)} fill={TEAK} stroke={TEAK_EDGE} strokeWidth={sw} />
+                )}
+                {elements.map((el) =>
+                  el.polylines.map((pl, j) => {
+                    const gw = Number(el?.params?.groove) || 0;
+                    const color = el.layer === "CUT" ? "#5A0F0F" : CAULK;
+                    const strokeW = el.layer === "CUT" ? sw : Math.max(sw, gw * 0.6);
+                    return (
+                      <Polyline
+                        key={`t_${el.id}_${j}`}
+                        points={ptsStr(pl)}
+                        fill="none"
+                        stroke={color}
+                        strokeWidth={strokeW}
+                      />
+                    );
+                  })
+                )}
+              </>
+            ) : (
+              <>
+                {rectUrl && project ? (
+                  <SvgImage
+                    href={{ uri: rectUrl }}
+                    x={0}
+                    y={0}
+                    width={imgW}
+                    height={imgH}
+                    preserveAspectRatio="none"
+                    opacity={0.55}
+                  />
+                ) : null}
+                <G>
+                  {gridLines.map((l, i) => (
+                    <Line key={i} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke={colors.divider} strokeWidth={sw * 0.5} />
+                  ))}
+                </G>
+                {/* elements */}
+                {elements.map((el) =>
+                  el.polylines.map((pl, j) => (
+                    <Polyline
+                      key={`${el.id}_${j}`}
+                      points={ptsStr(pl)}
+                      fill="none"
+                      stroke={el.layer === "CUT" ? colors.cut : colors.engrave}
+                      strokeWidth={sw}
+                    />
+                  ))
+                )}
+                {/* main contour */}
+                {contour.length >= 3 && (
+                  <Polygon points={ptsStr(contour)} fill="rgba(255,69,0,0.10)" stroke={colors.brand} strokeWidth={sw * 1.4} />
+                )}
+                {/* nodes */}
+                {mode === "points" &&
+                  contour.map((p, i) => (
+                    <Circle
+                      key={i}
+                      cx={p[0]}
+                      cy={p[1]}
+                      r={selNode === i ? nodeR * 1.5 : nodeR}
+                      fill={selNode === i ? colors.brand : colors.surface}
+                      stroke={colors.borderStrong}
+                      strokeWidth={sw}
+                    />
+                  ))}
+              </>
             )}
-            {/* main contour */}
-            {contour.length >= 3 && (
-              <Polygon points={ptsStr(contour)} fill="rgba(255,69,0,0.10)" stroke={colors.brand} strokeWidth={sw * 1.4} />
-            )}
-            {/* nodes */}
-            {mode === "points" &&
-              contour.map((p, i) => (
-                <Circle
-                  key={i}
-                  cx={p[0]}
-                  cy={p[1]}
-                  r={selNode === i ? nodeR * 1.5 : nodeR}
-                  fill={selNode === i ? colors.brand : colors.surface}
-                  stroke={colors.borderStrong}
-                  strokeWidth={sw}
-                />
-              ))}
           </Svg>
         </GestureDetector>
+
+        {/* teak preview toggle */}
+        <Pressable
+          testID="teak-toggle"
+          onPress={() => setTeak((t) => !t)}
+          style={[styles.teakToggle, teak && { backgroundColor: TEAK, borderColor: TEAK_EDGE }]}
+        >
+          <MaterialCommunityIcons name={teak ? "eye-off" : "palette"} size={16} color={teak ? "#FFF" : colors.onSurface} />
+          <Text style={[styles.teakToggleText, teak && { color: "#FFF" }]}>{teak ? "VETTORI" : "ANTEPRIMA TEAK"}</Text>
+        </Pressable>
 
         {/* zoom controls */}
         <View style={styles.zoomCol}>
@@ -655,6 +699,8 @@ export default function Editor() {
 
               <ModalField label="Spessore solco caulking (mm)" testID="fill-groove" value={fillGroove} onChangeText={setFillGroove} keyboardType="decimal-pad" />
 
+              <ModalField label="Lunghezza doga · sfalsata (mm, 0 = continua)" testID="fill-board" value={fillBoard} onChangeText={setFillBoard} keyboardType="decimal-pad" />
+
               <Text style={styles.modalLabel}>Stile</Text>
               <Segmented<"semplice" | "bordato">
                 testID="fill-style"
@@ -841,6 +887,12 @@ const styles = StyleSheet.create({
     borderWidth: BORDER, borderColor: colors.borderStrong, alignItems: "center", justifyContent: "center",
   },
   gridBadge: { position: "absolute", left: space.md, bottom: space.md, backgroundColor: colors.surfaceInverse, paddingHorizontal: space.sm, paddingVertical: 3 },
+  teakToggle: {
+    position: "absolute", left: space.md, top: space.md, flexDirection: "row", gap: 6, alignItems: "center",
+    backgroundColor: colors.surface, borderWidth: BORDER, borderColor: colors.borderStrong,
+    paddingHorizontal: space.sm, paddingVertical: 7,
+  },
+  teakToggleText: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.onSurface, letterSpacing: 0.3 },
   gridBadgeText: { fontFamily: fonts.mono, fontSize: 10, color: colors.onSurfaceInverse },
   modeWrap: { paddingHorizontal: space.lg, paddingTop: space.sm },
   panel: { paddingHorizontal: space.lg, paddingTop: space.sm, borderTopWidth: 0 },
