@@ -1,0 +1,184 @@
+"""Geometry helpers: offset, fillet, text->paths, svg->paths, patterns."""
+from __future__ import annotations
+
+import logging
+import re
+from typing import List
+
+import matplotlib
+
+matplotlib.use("Agg")
+from matplotlib.font_manager import FontProperties  # noqa: E402
+from matplotlib.textpath import TextPath  # noqa: E402
+from shapely.geometry import Polygon  # noqa: E402
+from svgpathtools import parse_path  # noqa: E402
+
+logger = logging.getLogger("geometry")
+
+Poly = List[List[float]]  # a single polyline: list of [x,y]
+
+
+def _ring(points: Poly) -> Polygon:
+    if len(points) < 3:
+        return Polygon()
+    return Polygon(points)
+
+
+def apply_fillet(points: Poly, radius_mm: float) -> Poly:
+    if radius_mm <= 0 or len(points) < 3:
+        return points
+    poly = _ring(points)
+    if not poly.is_valid or poly.is_empty:
+        poly = poly.buffer(0)
+    try:
+        rounded = poly.buffer(radius_mm, join_style=1).buffer(-radius_mm, join_style=1)
+        if rounded.is_empty:
+            return points
+        if rounded.geom_type == "MultiPolygon":
+            rounded = max(rounded.geoms, key=lambda g: g.area)
+        return [[float(x), float(y)] for x, y in rounded.exterior.coords]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("fillet failed: %s", e)
+        return points
+
+
+def apply_offset(points: Poly, offset_mm: float) -> Poly:
+    """Positive offset grows outward (blade compensation)."""
+    if offset_mm == 0 or len(points) < 3:
+        return points
+    poly = _ring(points)
+    if not poly.is_valid or poly.is_empty:
+        poly = poly.buffer(0)
+    try:
+        result = poly.buffer(offset_mm, join_style=2)
+        if result.is_empty:
+            return points
+        if result.geom_type == "MultiPolygon":
+            result = max(result.geoms, key=lambda g: g.area)
+        return [[float(x), float(y)] for x, y in result.exterior.coords]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("offset failed: %s", e)
+        return points
+
+
+def perimeter_mm(points: Poly) -> float:
+    if len(points) < 2:
+        return 0.0
+    total = 0.0
+    n = len(points)
+    for i in range(n):
+        a = points[i]
+        b = points[(i + 1) % n]
+        total += ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+    return total
+
+
+def bbox_mm(points: Poly):
+    if not points:
+        return {"w": 0.0, "h": 0.0, "min_x": 0.0, "min_y": 0.0}
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return {
+        "w": max(xs) - min(xs),
+        "h": max(ys) - min(ys),
+        "min_x": min(xs),
+        "min_y": min(ys),
+    }
+
+
+# --------------------------------------------------------------------------
+# Text -> vector paths (filled glyph outlines, ideal for engraving pockets)
+# --------------------------------------------------------------------------
+def text_to_polylines(text: str, height_mm: float, x: float, y: float) -> List[Poly]:
+    if not text.strip():
+        return []
+    prop = FontProperties(family="DejaVu Sans")
+    tp = TextPath((0, 0), text, size=1.0, prop=prop)
+    polys = tp.to_polygons(closed_only=False)
+    if not polys:
+        return []
+    # normalize to requested cap height
+    all_y = [pt[1] for poly in polys for pt in poly]
+    all_x = [pt[0] for poly in polys for pt in poly]
+    raw_h = (max(all_y) - min(all_y)) or 1.0
+    scale = height_mm / raw_h
+    min_x = min(all_x)
+    min_y = min(all_y)
+    out: List[Poly] = []
+    for poly in polys:
+        line = [[float((px - min_x) * scale + x), float((py - min_y) * scale + y)] for px, py in poly]
+        if len(line) >= 2:
+            out.append(line)
+    return out
+
+
+# --------------------------------------------------------------------------
+# SVG -> vector paths
+# --------------------------------------------------------------------------
+def svg_to_polylines(svg: str, width_mm: float, x: float, y: float, samples: int = 60) -> List[Poly]:
+    d_attrs = re.findall(r'\sd\s*=\s*"([^"]+)"', svg)
+    if not d_attrs:
+        d_attrs = re.findall(r"\sd\s*=\s*'([^']+)'", svg)
+    raw: List[Poly] = []
+    for d in d_attrs:
+        try:
+            path = parse_path(d)
+        except Exception:  # noqa: BLE001
+            continue
+        if len(path) == 0:
+            continue
+        pts: Poly = []
+        length = path.length() or 1.0
+        n = max(20, min(400, int(length / 2)))
+        for i in range(n + 1):
+            t = i / n
+            pt = path.point(t)
+            pts.append([pt.real, pt.imag])
+        if len(pts) >= 2:
+            raw.append(pts)
+    if not raw:
+        return []
+    all_x = [p[0] for poly in raw for p in poly]
+    all_y = [p[1] for poly in raw for p in poly]
+    raw_w = (max(all_x) - min(all_x)) or 1.0
+    scale = width_mm / raw_w
+    min_x = min(all_x)
+    min_y = min(all_y)
+    out: List[Poly] = []
+    for poly in raw:
+        # SVG y grows downward; flip so it reads naturally in mm plane
+        out.append([[float((px - min_x) * scale + x), float((py - min_y) * scale + y)] for px, py in poly])
+    return out
+
+
+# --------------------------------------------------------------------------
+# Track pattern (parallel grooves)
+# --------------------------------------------------------------------------
+def track_pattern(x: float, y: float, width_mm: float, height_mm: float,
+                  spacing_mm: float, angle_deg: float) -> List[Poly]:
+    import math
+
+    spacing_mm = max(spacing_mm, 2.0)
+    ang = math.radians(angle_deg)
+    dx, dy = math.cos(ang), math.sin(ang)
+    nx, ny = -dy, dx  # normal
+    diag = (width_mm ** 2 + height_mm ** 2) ** 0.5
+    cx, cy = x + width_mm / 2, y + height_mm / 2
+    lines: List[Poly] = []
+    n = int(diag / spacing_mm) + 1
+    clip = Polygon([[x, y], [x + width_mm, y], [x + width_mm, y + height_mm], [x, y + height_mm]])
+    for i in range(-n, n + 1):
+        off = i * spacing_mm
+        px = cx + nx * off
+        py = cy + ny * off
+        p1 = (px - dx * diag, py - dy * diag)
+        p2 = (px + dx * diag, py + dy * diag)
+        from shapely.geometry import LineString
+
+        seg = LineString([p1, p2]).intersection(clip)
+        if seg.is_empty or seg.geom_type != "LineString":
+            continue
+        coords = list(seg.coords)
+        if len(coords) >= 2:
+            lines.append([[float(a), float(b)] for a, b in coords])
+    return lines

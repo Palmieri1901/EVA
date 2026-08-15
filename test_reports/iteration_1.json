@@ -1,0 +1,38 @@
+{
+  "summary": "Full backend + frontend test for EVA Boat Mat Digitizer. Backend pytest suite (17 tests) covers health, patterns, project CRUD lifecycle (create/list/get/patch/delete), photo upload of the synthetic image, CV /process (validated markers_found>=5, tape_detected=true, quality.valid=true, contour_mm>=4 pts), preview (cut+engrave polylines, bbox, perimeter), geometry generators (text/svg/track incl. 422 for empty SVG), DXF export with size>0 + file streaming, soft delete + subsequent 404, and invalid/missing id error paths — 17/17 PASSED. Frontend Playwright tests on mobile viewport (390x844) verified: Home renders + NUOVA DIGITALIZZAZIONE navigates to /new-project; New Project form + segmented controls (bg mode BLU/BIANCO SU SCURO, cut side INTERNO/ESTERNO) + AVVIA CAMERA creates project then navigates to /capture?id=; Capture screen on web correctly shows ACCESSO CAMERA permission gate with CONSENTI CAMERA + USA GALLERIA fallback + ANNULLA (no camera on web as expected); Editor (/editor/{id}) renders SVG canvas with contour + 5 nodes, PUNTI/TEXTURE mode switch, nudge d-pad (up/down/left/right with 0.5/1/5/10 step selector), + PUNTO / ELIMINA buttons, OFFSET LAMA + RACCORDO inputs, APPLICA button — filled 1.5/4, tapped APPLICA and confirmed via GET /projects/{id} that blade_offset_mm=1.5, fillet_radius_mm=4.0, status='edited'; TEXTURE mode opens AGGIUNGI ELEMENTO modal with TIPO TEXT/SVG/TRACK/RECT/CIRCLE/LINE, TESTO/ALTEZZA/LAYER (INCISIONE/TAGLIO), AGGIUNGI button; Export (/export/{id}) renders wireframe, DIMENSIONI 620.9×423.3mm, PERIMETRO TAGLIO 1927mm, POLILINEE CUT 1 ENGRAVE 0, and ESPORTA DXF button triggers window.open on the DXF url which returns HTTP 200 with 16328-byte payload. No React Native red screens; deprecated packages check clean.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "server.py:143", "issue": "Dead-code list comprehension `[e if isinstance(e, dict) else e for e in updates['elements']]` — both branches return e; harmless but should be removed."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "all", "issues": ["Custom fonts SpaceGrotesk-Regular/Bold/Medium fail to decode on web ('OTS parsing error: invalid sfntVersion: 168430090') — the browser falls back to system font so UI is still legible, but the branded typography does not render on web preview. Consider checking font asset serving via Metro on web (assets/?unstable_path=./assets/fonts/*.ttf returns non-font content)."]}
+    ],
+    "react_native_issues": [
+      {"component": "capture.tsx / other overlay Views", "issue": "Deprecated prop warning: 'props.pointerEvents is deprecated. Use style.pointerEvents' — replace pointerEvents='box-none'/'none' with style={{ pointerEvents: ... }}. Reference: /app/frontend/app/capture.tsx:139,144"}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_boat_mat_api.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "(Low) Remove no-op list comprehension in server.py line 143 for elements normalization.",
+    "(Low) Fix custom-font serving via Metro so SpaceGrotesk TTFs decode on web preview (currently OTS parsing error; system font fallback is used).",
+    "(Low) Migrate `pointerEvents` prop to `style.pointerEvents` in capture.tsx to silence React Native web deprecation warning."
+  ],
+  "critical_code_review_comments": [
+    "Backend correctly excludes MongoDB _id in serialize() and uses async run_in_threadpool for CV/storage IO.",
+    "All endpoints prefixed with /api and use env-driven MONGO_URL, DB_NAME, EXPO_PUBLIC_BACKEND_URL — no hardcoded URLs found.",
+    "Frontend api.ts uses process.env.EXPO_PUBLIC_BACKEND_URL as required and handles JSON error extraction.",
+    "All interactive elements carry testID (new-project-btn, start-camera-btn, input-*, bg-mode, cut-side, mode-punti/texture, nudge-*, offset-input, fillet-input, apply-btn/APPLICA, export-dxf-btn, project-card-{id}, delete-{id}, use-gallery, grant-camera, cancel-capture)."
+  ],
+  "updated_files": ["/app/backend/tests/test_boat_mat_api.py (new)"],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% (all 15 UI checks passed)"},
+  "seed_data_creation": "Created (and cleaned up) two TEST_ projects during testing; test data was soft-deleted at the end via DELETE /api/projects/{id}.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend pytest lives at /app/backend/tests/test_boat_mat_api.py and self-regenerates /tmp/synthetic.jpg via /tmp/test_pipeline.py if missing. Run with: EXPO_PUBLIC_BACKEND_URL=$(grep EXPO_PUBLIC_BACKEND_URL /app/frontend/.env | cut -d= -f2) pytest /app/backend/tests -v. Editor uses SVG canvas with viewBox pan/zoom and on-screen nudge d-pad (no drag). APPLICA saves blade_offset_mm/fillet_radius_mm via PATCH /projects/{id}. Camera does NOT work on web preview by design — permission gate + gallery fallback are the expected UI.",
+  "rca_of_issue": "N/A — no bugs to root-cause. Only cosmetic/deprecation warnings noted."
+}

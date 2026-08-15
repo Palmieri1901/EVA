@@ -1,0 +1,160 @@
+{
+  "app_name": "EVA Boat Mat Digitizer",
+  "personality": "5 Brutalist Mobile LIGHT",
+  "personality_one_liner": "A high-precision, utilitarian workshop tool where raw data, strict geometry, and operational clarity dominate over aesthetics.",
+  "color": {
+    "surface": "#FFFFFF",
+    "onSurface": "#0A0A0A",
+    "surfaceSecondary": "#F5F5F5",
+    "onSurfaceSecondary": "#1F1F1F",
+    "surfaceTertiary": "#EBEBEB",
+    "onSurfaceTertiary": "#404040",
+    "surfaceInverse": "#0A0A0A",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#FF4500",
+    "brandPrimary": "#FF4500",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#FF6A33",
+    "onBrandSecondary": "#0A0A0A",
+    "brandTertiary": "#FFE8E0",
+    "onBrandTertiary": "#FF4500",
+    "success": "#00C853",
+    "onSuccess": "#FFFFFF",
+    "warning": "#FFD600",
+    "onWarning": "#0A0A0A",
+    "error": "#D50000",
+    "onError": "#FFFFFF",
+    "info": "#292929",
+    "onInfo": "#FFFFFF",
+    "border": "#D1D1D1",
+    "borderStrong": "#0A0A0A",
+    "divider": "#E0E0E0"
+  },
+  "typography": {
+    "displayFontFamily": "Space Grotesk",
+    "textFontFamily": "IBM Plex Mono",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Use rigid grids and exposed structural spacing. Sections are separated by thick borders, not padding alone.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 0,
+    "md": 0,
+    "lg": 0,
+    "pill": 0
+  },
+  "shadow_tier": "0",
+  "navigation": "stack_only",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": [],
+    "dont's": ["Never use glass or blur. Surfaces must be opaque, solid, and flat to maintain the technical, industrial look."]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "solid surfaceSecondary",
+      "android": "solid surfaceSecondary",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "none",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Projects",
+      "purpose": "Home screen showing historical CAD projects and a massive action to start a new scan.",
+      "states": {
+        "loading": "Full-screen stark white with a mono blinking cursor or industrial spinner.",
+        "empty": "A raw SVG schematic of a boat mat, accompanied by technical copy '0 PROJECTS FOUND' and a primary action.",
+        "error": "Hard red border box with mono error code and 'RETRY' button."
+      },
+      "layout": "Grid-based list with 2pt black outlines on every card. Oversized headers. 'NEW DIGITIZATION' button is anchored to the bottom, full width, with a 2pt black border and industrial orange fill. Project cards show a thumbnail and mm-accurate metadata in mono text."
+    },
+    {
+      "name": "NewProjectSetup",
+      "purpose": "Configuration form to declare physical parameters (tape mode, marker sizes) before shooting.",
+      "states": {
+        "loading": "N/A",
+        "empty": "N/A",
+        "error": "Inline mono text under failed inputs with a red structural underline."
+      },
+      "layout": "Forms act like data-entry terminal tables. Labels are above inputs in IBM Plex Mono. Selectors for 'Blue Tape' vs 'White Tape' are hard-cornered segmented blocks. 'START CAMERA' sticky bottom button."
+    },
+    {
+      "name": "GuidedCapture",
+      "purpose": "Full-screen camera viewfinder with a HUD overlay for real-time validation of markers.",
+      "states": {
+        "loading": "Camera initialization feed with a crosshair.",
+        "empty": "N/A",
+        "error": "If lighting/focus fails, HUD elements flash Signal Red."
+      },
+      "layout": "Camera feed flex: 1. A technical HUD overlay with a crosshair. 5 distinct target frames (4 corners, 1 center). As CV algorithm detects markers, targets turn Success Green. Persistent bottom bar (opaque black) showing live telemetry (Pitch/Yaw) and the Shutter button."
+    },
+    {
+      "name": "VectorEditor",
+      "purpose": "Core CAD workspace to modify Bézier points, verify mm measurements, and add textures/text.",
+      "states": {
+        "loading": "Vectorizing blueprint animation (lines drawing).",
+        "empty": "N/A",
+        "error": "Toast overlay with technical trace (e.g., 'ERR: NON-CLOSED POLYGON')."
+      },
+      "layout": "Top nav bar with current mode (POINTS, TEXTURE, EXPORT). Central area is a pan/zoom Canvas component rendering the vector with a prominent mm grid overlay. Selected points are hard square nodes. A bottom sheet or side panel (using @gorhom/bottom-sheet in 0-radius mode) houses the precise technical inputs (offset in mm, fillet radius)."
+    },
+    {
+      "name": "ExportPreview",
+      "purpose": "Final visual check of the multi-layer DXF (CUT/ENGRAVE) before export.",
+      "states": {
+        "loading": "Compiling DXF... mono progress counter.",
+        "empty": "N/A",
+        "error": "Export failed block."
+      },
+      "layout": "Split layout. Top 60% is a strict wireframe preview of the layers (Cut lines in red, Engrave in blue). Bottom 40% summarizes dimensions and layer counts. Large sticky button 'EXPORT DXF' to trigger the system share sheet."
+    }
+  ],
+  "images": {
+    "project_bg_1": {
+      "url": "https://images.unsplash.com/photo-1722032259251-91cc9365b349?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHwxfHxib2F0JTIwZGVjayUyMHlhY2h0JTIwbWFyaW5lJTIwZmxvb3J8ZW58MHx8fHwxNzg2Nzg5NTM3fDA&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.unsplash.com/photo-1722032259251-91cc9365b349?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHwxfHxib2F0JTIwZGVjayUyMHlhY2h0JTIwbWFyaW5lJTIwZmxvb3J8ZW58MHx8fHwxNzg2Nzg5NTM3fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Boat deck with EVA marine floor"
+    },
+    "cnc_workshop": {
+      "url": "https://images.unsplash.com/photo-1781032040825-04240013c228?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwyfHxDTkMlMjBtYWNoaW5lJTIwY3V0dGluZyUyMHdvb2QlMjBvciUyMGZvYW0lMjBpbiUyMGElMjB3b3Jrc2hvcHxlbnwwfHx8fDE3ODY3ODk1MzJ8MA&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.unsplash.com/photo-1781032040825-04240013c228?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwyfHxDTkMlMjBtYWNoaW5lJTIwY3V0dGluZyUyMHdvb2QlMjBvciUyMGZvYW0lMjBpbiUyMGElMjB3b3Jrc2hvcHxlbnwwfHx8fDE3ODY3ODk1MzJ8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Orange CNC machine cutting materials in a workshop"
+    }
+  },
+  "haptics": {
+    "button_press": "impactLight",
+    "camera_target_lock": "impactMedium",
+    "camera_capture_success": "notificationSuccess",
+    "vector_point_snap": "selection",
+    "tab_switch": "selection",
+    "error_feedback": "notificationError"
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the Brutalist Mobile LIGHT personality (Row 5). Zero border radius, 2pt solid borders on inputs, buttons, and cards, utilizing IBM Plex Mono heavily for data, labels, and measurements to reflect the CAD tool nature.",
+    "Do NOT use drop shadows or blur anywhere in the app. Elevation is represented by 2pt borders and high contrast backgrounds.",
+    "The 'Guided Capture' screen should use a full-screen layout with an overlay (HUD style). Implement visual target nodes that change from white/red to success green (#00C853) when markers are perfectly aligned.",
+    "In the Vector Editor, mm measurements must always be visible. Ensure the grid overlay is prominent. Create a bottom sheet for manipulating points, offsets, and textures, strictly un-rounded.",
+    "Utilize haptics actively, particularly 'selection' during vector point snapping and 'impactMedium' when camera targets lock.",
+    "Ensure all numbers, units (mm), and coordinates use the textFontFamily (IBM Plex Mono). Layouts should feel like engineering software interfaces: dense, structural, completely omitting decorative elements that don't serve a technical purpose."
+  ]
+}
