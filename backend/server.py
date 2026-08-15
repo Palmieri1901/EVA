@@ -25,6 +25,7 @@ import cv_pipeline as cv
 import geometry_ops as geo
 import stitch as stitcher
 import storage_client as store
+import techsheet
 from dxf_builder import build_dxf
 from models import (
     Element,
@@ -508,6 +509,40 @@ async def preview_project(project_id: str):
     }
 
 
+TIPO_LABEL = {"diamond": "Diamante", "cross": "Incrociato", "lines": "Listelli"}
+
+
+@api_router.post("/projects/{project_id}/techsheet")
+async def techsheet_project(project_id: str, body: dict = None):
+    body = body or {}
+    doc = await get_project_doc(project_id)
+    base, cut_polys, engrave_polys = _compute_final(doc)
+    if not cut_polys:
+        raise HTTPException(status_code=422, detail="Nessuna dima da riportare in scheda")
+
+    # tipo derived from first fill element pattern
+    tipo = "—"
+    for el in doc.get("elements", []):
+        if el.get("type") == "fill":
+            tipo = TIPO_LABEL.get((el.get("params") or {}).get("pattern"), "Listelli")
+            break
+
+    from datetime import datetime, timezone
+    meta = {
+        "company": body.get("company") or "FOAM TEAK",
+        "date": body.get("date") or datetime.now(timezone.utc).strftime("%d/%m/%y"),
+        "client": body.get("client") or doc.get("name", ""),
+        "model": body.get("model") or "",
+        "tipo": body.get("tipo") or tipo,
+        "color": body.get("color") or "",
+        "area_m2": geo.area_m2(base),
+    }
+    pdf = await run_in_threadpool(techsheet.render_sheet, cut_polys, engrave_polys, meta)
+    spath = f"{store.APP_NAME}/techsheet/{project_id}/{uuid.uuid4()}.pdf"
+    await run_in_threadpool(store.put_object, spath, pdf, "application/pdf")
+    return {"sheet_url": file_url(spath), "size": len(pdf), "area_m2": meta["area_m2"]}
+
+
 @api_router.post("/projects/{project_id}/export")
 async def export_project(project_id: str):
     doc = await get_project_doc(project_id)
@@ -535,7 +570,7 @@ async def get_file(file_path: str):
         logger.warning("file fetch failed %s: %s", file_path, e)
         raise HTTPException(status_code=404, detail="File non trovato")
     headers = {}
-    if file_path.endswith(".dxf"):
+    if file_path.endswith(".dxf") or file_path.endswith(".pdf"):
         headers["Content-Disposition"] = f'attachment; filename="{file_path.split("/")[-1]}"'
     return Response(content=content, media_type=ctype, headers=headers)
 

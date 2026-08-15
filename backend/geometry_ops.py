@@ -75,6 +75,15 @@ def perimeter_mm(points: Poly) -> float:
     return total
 
 
+def area_m2(points: Poly) -> float:
+    poly = _ring(points)
+    if poly.is_empty:
+        return 0.0
+    if not poly.is_valid:
+        poly = poly.buffer(0)
+    return float(poly.area) / 1_000_000.0
+
+
 def bbox_mm(points: Poly):
     if not points:
         return {"w": 0.0, "h": 0.0, "min_x": 0.0, "min_y": 0.0}

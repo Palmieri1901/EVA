@@ -105,6 +105,8 @@ export const api = {
   preview: (id: string): Promise<any> => req(`/projects/${id}/preview`),
   exportDxf: (id: string): Promise<{ dxf_url: string; size: number }> =>
     req(`/projects/${id}/export`, { method: "POST" }),
+  techsheet: (id: string, body: any): Promise<{ sheet_url: string; size: number; area_m2: number }> =>
+    req(`/projects/${id}/techsheet`, { method: "POST", body: JSON.stringify(body) }),
   patterns: (): Promise<any[]> => req("/patterns"),
   geoText: (body: any): Promise<{ polylines: number[][][] }> =>
     req("/geometry/text", { method: "POST", body: JSON.stringify(body) }),

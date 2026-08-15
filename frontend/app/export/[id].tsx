@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Svg, { Polygon, Polyline } from "react-native-svg";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,6 +23,11 @@ export default function ExportPreview() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetBusy, setSheetBusy] = useState(false);
+  const [shClient, setShClient] = useState("");
+  const [shModel, setShModel] = useState("");
+  const [shColor, setShColor] = useState("");
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -80,6 +85,32 @@ export default function ExportPreview() {
       toast(e.message || "Export fallito", "error");
     } finally {
       setExporting(false);
+    }
+  };
+
+  const doSheet = async () => {
+    if (!id) return;
+    setSheetBusy(true);
+    try {
+      const res = await api.techsheet(id, { client: shClient, model: shModel, color: shColor });
+      const url = absUrl(res.sheet_url)!;
+      if (Platform.OS === "web") {
+        window.open(url, "_blank");
+        toast(`Scheda tecnica · ${res.area_m2.toFixed(2)} mq`, "success");
+      } else {
+        const fileUri = FileSystem.documentDirectory + `scheda_${id}.pdf`;
+        const dl = await FileSystem.downloadAsync(url, fileUri);
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(dl.uri, { mimeType: "application/pdf", dialogTitle: "Scheda tecnica" });
+        } else {
+          toast("Scheda salvata: " + dl.uri, "success");
+        }
+      }
+      setSheetOpen(false);
+    } catch (e: any) {
+      toast(e.message || "Scheda fallita", "error");
+    } finally {
+      setSheetBusy(false);
     }
   };
 
@@ -154,6 +185,11 @@ export default function ExportPreview() {
       </View>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + space.md }]}>
+        <Pressable testID="techsheet-btn" style={styles.sheetBtn} onPress={() => setSheetOpen(true)}>
+          <Feather name="file-text" size={18} color={colors.onSurface} />
+          <Text style={styles.sheetBtnText}>SCHEDA TECNICA (PDF)</Text>
+        </Pressable>
+        <View style={{ height: space.md }} />
         <Btn
           testID="export-dxf-btn"
           label="ESPORTA DXF"
@@ -162,6 +198,29 @@ export default function ExportPreview() {
           onPress={doExport}
         />
       </View>
+
+      <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={() => setSheetOpen(false)}>
+        <View style={styles.modalRoot}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHead}>
+              <Text style={styles.modalTitle}>SCHEDA TECNICA</Text>
+              <Pressable testID="sheet-close" onPress={() => setSheetOpen(false)} hitSlop={10}>
+                <Feather name="x" size={22} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            <View style={{ padding: space.lg }}>
+              <Text style={styles.fLabel}>CLIENTE</Text>
+              <TextInput testID="sheet-client" value={shClient} onChangeText={setShClient} placeholder="Es. Mattia Yacht" placeholderTextColor={colors.onSurfaceTertiary} style={styles.fInput} />
+              <Text style={styles.fLabel}>MODELLO</Text>
+              <TextInput testID="sheet-model" value={shModel} onChangeText={setShModel} placeholder="Es. GEB 800" placeholderTextColor={colors.onSurfaceTertiary} style={styles.fInput} />
+              <Text style={styles.fLabel}>COLORE</Text>
+              <TextInput testID="sheet-color" value={shColor} onChangeText={setShColor} placeholder="Es. Grigio / Teak" placeholderTextColor={colors.onSurfaceTertiary} style={styles.fInput} />
+              <View style={{ height: space.md }} />
+              <Btn testID="sheet-generate" label="GENERA PDF" loading={sheetBusy} icon={<Feather name="download" size={18} color={colors.onBrand} />} onPress={doSheet} />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -186,4 +245,21 @@ const styles = StyleSheet.create({
   sumLabel: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, letterSpacing: 0.5 },
   sumVal: { fontFamily: fonts.monoBold, fontSize: fontSize.lg, color: colors.onSurface },
   footer: { padding: space.lg, borderTopWidth: BORDER, borderTopColor: colors.borderStrong },
+  sheetBtn: {
+    flexDirection: "row", gap: space.sm, alignItems: "center", justifyContent: "center",
+    borderWidth: BORDER, borderColor: colors.borderStrong, paddingVertical: space.md, backgroundColor: colors.surface,
+  },
+  sheetBtnText: { fontFamily: fonts.display, fontSize: fontSize.base, color: colors.onSurface, letterSpacing: 0.5 },
+  modalRoot: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  modalCard: { backgroundColor: colors.surface, borderTopWidth: BORDER, borderColor: colors.borderStrong },
+  modalHead: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    padding: space.lg, borderBottomWidth: BORDER, borderBottomColor: colors.borderStrong,
+  },
+  modalTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface, letterSpacing: 1 },
+  fLabel: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginBottom: space.xs, marginTop: space.sm, textTransform: "uppercase" },
+  fInput: {
+    borderWidth: BORDER, borderColor: colors.borderStrong, fontFamily: fonts.mono,
+    fontSize: fontSize.base, color: colors.onSurface, paddingHorizontal: space.md, paddingVertical: space.md,
+  },
 });
