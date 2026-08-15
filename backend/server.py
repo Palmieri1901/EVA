@@ -454,12 +454,18 @@ async def geometry_fill(req: FillRequest):
     if len(req.contour) < 3:
         raise HTTPException(status_code=422, detail="Contorno non valido per il riempimento")
     res = await run_in_threadpool(
-        geo.fill_pattern, req.contour, req.spacing_mm, req.angle_deg, req.pattern, req.style, req.border_mm
+        geo.fill_pattern, req.contour, req.spacing_mm, req.angle_deg, req.pattern,
+        req.style, req.border_mm, req.groove_mm, req.auto_angle,
     )
     polylines = (res.get("border") or []) + (res.get("pattern") or [])
     if not polylines:
         raise HTTPException(status_code=422, detail="Nessun riempimento generato (area troppo piccola?)")
-    return {"polylines": polylines, "border_count": len(res.get("border") or []), "line_count": len(res.get("pattern") or [])}
+    return {
+        "polylines": polylines,
+        "border_count": len(res.get("border") or []),
+        "line_count": len(res.get("pattern") or []),
+        "angle_used": res.get("angle_used", req.angle_deg),
+    }
 
 
 # --------------------------------------------------------------------------

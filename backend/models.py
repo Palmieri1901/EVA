@@ -146,4 +146,6 @@ class FillRequest(BaseModel):
     pattern: str = "diamond"  # diamond | cross | lines
     style: str = "semplice"   # semplice | bordato
     border_mm: float = 30.0
+    groove_mm: float = 0.0    # caulking groove width (0 = single centerline)
+    auto_angle: bool = False  # orient planks along the longest side
     layer: str = "ENGRAVE"

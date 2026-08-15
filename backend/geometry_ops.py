@@ -12,6 +12,7 @@ import math  # noqa: E402
 from matplotlib.font_manager import FontProperties  # noqa: E402
 from matplotlib.textpath import TextPath  # noqa: E402
 from shapely.geometry import LineString, Polygon  # noqa: E402
+from shapely.ops import unary_union  # noqa: E402
 from svgpathtools import parse_path  # noqa: E402
 
 logger = logging.getLogger("geometry")
@@ -219,14 +220,51 @@ def _poly_exteriors(geom) -> List[Poly]:
     return rings
 
 
+def _all_rings(geom) -> List[Poly]:
+    """Every ring (exteriors + holes) of a Polygon/MultiPolygon as closed polylines."""
+    rings: List[Poly] = []
+    if geom.is_empty:
+        return rings
+    parts = list(geom.geoms) if geom.geom_type.startswith("Multi") else [geom]
+    for p in parts:
+        if p.geom_type != "Polygon":
+            continue
+        rings.append([[float(x), float(y)] for x, y in p.exterior.coords])
+        for interior in p.interiors:
+            rings.append([[float(x), float(y)] for x, y in interior.coords])
+    return rings
+
+
+def _longest_edge_angle(poly: Polygon) -> float:
+    """Angle (deg) of the longest side of the polygon's min-area rectangle."""
+    try:
+        mrr = poly.minimum_rotated_rectangle
+        coords = list(mrr.exterior.coords)
+    except Exception:  # noqa: BLE001
+        return 0.0
+    best_len, best_ang = 0.0, 0.0
+    for i in range(len(coords) - 1):
+        ax, ay = coords[i]
+        bx, by = coords[i + 1]
+        length = math.hypot(bx - ax, by - ay)
+        if length > best_len:
+            best_len = length
+            best_ang = math.degrees(math.atan2(by - ay, bx - ax))
+    return best_ang
+
+
 def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
                  pattern: str = "diamond", style: str = "semplice",
-                 border_mm: float = 30.0) -> dict:
+                 border_mm: float = 30.0, groove_mm: float = 0.0,
+                 auto_angle: bool = False) -> dict:
     poly = _ring(contour)
     if not poly.is_valid or poly.is_empty:
         poly = poly.buffer(0)
     if poly.is_empty:
-        return {"pattern": [], "border": []}
+        return {"pattern": [], "border": [], "angle_used": angle_deg}
+
+    if auto_angle:
+        angle_deg = _longest_edge_angle(poly)
 
     spacing = max(spacing_mm, 3.0)
     border_lines: List[Poly] = []
@@ -250,4 +288,16 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
     else:  # lines / planks
         lines += _hatch(field, spacing, angle_deg)
 
-    return {"pattern": lines, "border": border_lines}
+    # Caulking groove: turn centerlines (and border) into thin channel pockets.
+    if groove_mm and groove_mm > 0:
+        segs = [LineString(l) for l in lines if len(l) >= 2]
+        for b in border_lines:
+            if len(b) >= 2:
+                segs.append(LineString(b))
+        if not segs:
+            return {"pattern": [], "border": [], "angle_used": angle_deg}
+        buffered = unary_union([s.buffer(groove_mm / 2.0, cap_style=2, join_style=2) for s in segs])
+        clipped = buffered.intersection(poly)
+        return {"pattern": _all_rings(clipped), "border": [], "angle_used": angle_deg}
+
+    return {"pattern": lines, "border": border_lines, "angle_used": angle_deg}

@@ -90,6 +90,8 @@ export default function Editor() {
   const [fillPattern, setFillPattern] = useState<"diamond" | "cross" | "lines">("diamond");
   const [fillSpacing, setFillSpacing] = useState("20");
   const [fillAngle, setFillAngle] = useState("0");
+  const [fillAuto, setFillAuto] = useState(false);
+  const [fillGroove, setFillGroove] = useState("4");
   const [fillStyle, setFillStyle] = useState<"semplice" | "bordato">("semplice");
   const [fillBorder, setFillBorder] = useState("40");
   const [fillLayer, setFillLayer] = useState<Layer>("ENGRAVE");
@@ -291,23 +293,41 @@ export default function Editor() {
     await save({ elements: next });
   };
 
-  const confirmFill = async () => {
+  const runFill = async (opts: {
+    pattern: "diamond" | "cross" | "lines";
+    spacing: number;
+    angle: number;
+    auto: boolean;
+    style: "semplice" | "bordato";
+    border: number;
+    groove: number;
+    layer: Layer;
+    setBusy?: (b: boolean) => void;
+  }) => {
     if (contour.length < 3) {
       toast("Contorno non valido", "error");
       return;
     }
-    setFillBusy(true);
+    opts.setBusy?.(true);
     try {
       const r = await api.geoFill({
         contour,
-        spacing_mm: parseFloat(fillSpacing) || 20,
-        angle_deg: parseFloat(fillAngle) || 0,
-        pattern: fillPattern,
-        style: fillStyle,
-        border_mm: parseFloat(fillBorder) || 30,
-        layer: fillLayer,
+        spacing_mm: opts.spacing || 20,
+        angle_deg: opts.angle || 0,
+        auto_angle: opts.auto,
+        pattern: opts.pattern,
+        style: opts.style,
+        border_mm: opts.border || 30,
+        groove_mm: opts.groove || 0,
+        layer: opts.layer,
       });
-      const el: ElementT = { id: uid(), type: "fill", layer: fillLayer, polylines: r.polylines, params: { pattern: fillPattern, style: fillStyle } };
+      const el: ElementT = {
+        id: uid(),
+        type: "fill",
+        layer: opts.layer,
+        polylines: r.polylines,
+        params: { pattern: opts.pattern, style: opts.style, groove: opts.groove },
+      };
       const next = [...elements, el];
       setElements(next);
       await save({ elements: next });
@@ -317,7 +337,30 @@ export default function Editor() {
     } catch (e: any) {
       toast(e.message || "Riempimento fallito", "error");
     } finally {
-      setFillBusy(false);
+      opts.setBusy?.(false);
+    }
+  };
+
+  const confirmFill = () =>
+    runFill({
+      pattern: fillPattern,
+      spacing: parseFloat(fillSpacing),
+      angle: parseFloat(fillAngle),
+      auto: fillAuto,
+      style: fillStyle,
+      border: parseFloat(fillBorder),
+      groove: parseFloat(fillGroove),
+      layer: fillLayer,
+      setBusy: setFillBusy,
+    });
+
+  const applyPreset = (name: "doghe" | "diamante" | "incrociato") => {
+    if (name === "doghe") {
+      runFill({ pattern: "lines", spacing: 60, angle: 0, auto: true, style: "bordato", border: 40, groove: 5, layer: "ENGRAVE" });
+    } else if (name === "diamante") {
+      runFill({ pattern: "diamond", spacing: 40, angle: 45, auto: false, style: "semplice", border: 30, groove: 4, layer: "ENGRAVE" });
+    } else {
+      runFill({ pattern: "cross", spacing: 40, angle: 0, auto: false, style: "semplice", border: 30, groove: 4, layer: "ENGRAVE" });
     }
   };
 
@@ -468,7 +511,7 @@ export default function Editor() {
             }}
           />
         ) : (
-          <TexturePanel elements={elements} onAdd={() => setAddOpen(true)} onFill={() => setFillOpen(true)} onDelete={delElement} />
+          <TexturePanel elements={elements} onAdd={() => setAddOpen(true)} onFill={() => setFillOpen(true)} onPreset={applyPreset} onDelete={delElement} />
         )}
       </View>
 
@@ -577,6 +620,13 @@ export default function Editor() {
 
               <Text style={styles.modalLabel}>Orientamento doghe</Text>
               <View style={styles.typeGrid}>
+                <Pressable
+                  testID="fill-angle-auto"
+                  onPress={() => setFillAuto(true)}
+                  style={[styles.typeChip, fillAuto && { backgroundColor: colors.brand, borderColor: colors.brand }]}
+                >
+                  <Text style={[styles.typeChipText, fillAuto && { color: colors.onBrand }]}>AUTO ↳ BORDO</Text>
+                </Pressable>
                 {([
                   { a: "0", label: "0°" },
                   { a: "45", label: "45°" },
@@ -585,17 +635,25 @@ export default function Editor() {
                   <Pressable
                     key={o.a}
                     testID={`fill-angle-${o.a}`}
-                    onPress={() => setFillAngle(o.a)}
-                    style={[styles.typeChip, fillAngle === o.a && { backgroundColor: colors.surfaceInverse }]}
+                    onPress={() => { setFillAuto(false); setFillAngle(o.a); }}
+                    style={[styles.typeChip, !fillAuto && fillAngle === o.a && { backgroundColor: colors.surfaceInverse }]}
                   >
-                    <Text style={[styles.typeChipText, fillAngle === o.a && { color: colors.onSurfaceInverse }]}>{o.label}</Text>
+                    <Text style={[styles.typeChipText, !fillAuto && fillAngle === o.a && { color: colors.onSurfaceInverse }]}>{o.label}</Text>
                   </Pressable>
                 ))}
                 <View style={{ flexBasis: "100%" }} />
                 <View style={{ flex: 1 }}>
-                  <ModalField label="Angolo custom (°)" testID="fill-angle" value={fillAngle} onChangeText={setFillAngle} keyboardType="decimal-pad" />
+                  <ModalField
+                    label="Angolo custom (°)"
+                    testID="fill-angle"
+                    value={fillAngle}
+                    onChangeText={(t: string) => { setFillAuto(false); setFillAngle(t); }}
+                    keyboardType="decimal-pad"
+                  />
                 </View>
               </View>
+
+              <ModalField label="Spessore solco caulking (mm)" testID="fill-groove" value={fillGroove} onChangeText={setFillGroove} keyboardType="decimal-pad" />
 
               <Text style={styles.modalLabel}>Stile</Text>
               <Segmented<"semplice" | "bordato">
@@ -715,16 +773,32 @@ function PointsPanel(props: any) {
   );
 }
 
-function TexturePanel({ elements, onAdd, onFill, onDelete }: any) {
+function TexturePanel({ elements, onAdd, onFill, onPreset, onDelete }: any) {
   return (
     <View>
+      <Text style={styles.presetLabel}>LIBRERIA TEXTURE · UN TOCCO</Text>
+      <View style={styles.presetRow}>
+        <Pressable testID="preset-doghe" style={styles.presetChip} onPress={() => onPreset("doghe")}>
+          <MaterialCommunityIcons name="format-line-spacing" size={18} color={colors.onSurface} />
+          <Text style={styles.presetText}>DOGHE 60</Text>
+        </Pressable>
+        <Pressable testID="preset-diamante" style={styles.presetChip} onPress={() => onPreset("diamante")}>
+          <MaterialCommunityIcons name="rhombus-outline" size={18} color={colors.onSurface} />
+          <Text style={styles.presetText}>DIAMANTE</Text>
+        </Pressable>
+        <Pressable testID="preset-incrociato" style={styles.presetChip} onPress={() => onPreset("incrociato")}>
+          <MaterialCommunityIcons name="grid" size={18} color={colors.onSurface} />
+          <Text style={styles.presetText}>INCROCIATO</Text>
+        </Pressable>
+      </View>
+      <View style={{ height: space.sm }} />
       <Pressable testID="fill-area-btn" onPress={onFill} style={styles.fillBtn}>
-        <MaterialCommunityIcons name="grid" size={18} color={colors.onSurfaceInverse} />
-        <Text style={styles.fillText}>RIEMPI AREA CON TEXTURE</Text>
+        <MaterialCommunityIcons name="tune-variant" size={18} color={colors.onSurfaceInverse} />
+        <Text style={styles.fillText}>RIEMPI AREA (PERSONALIZZATO)</Text>
       </Pressable>
       <View style={{ height: space.sm }} />
       <Btn testID="add-element-btn" label="AGGIUNGI SCRITTA / FORMA / SVG" icon={<Feather name="plus" size={18} color={colors.onBrand} />} onPress={onAdd} />
-      <ScrollView style={{ maxHeight: 120, marginTop: space.sm }}>
+      <ScrollView style={{ maxHeight: 96, marginTop: space.sm }}>
         {elements.length === 0 ? (
           <Text style={styles.emptyEl}>Nessun elemento. Riempi l'area o aggiungi incisioni/tagli.</Text>
         ) : (
@@ -804,6 +878,13 @@ const styles = StyleSheet.create({
     paddingVertical: space.md,
   },
   fillText: { fontFamily: fonts.display, fontSize: fontSize.base, color: colors.onSurfaceInverse, letterSpacing: 0.5 },
+  presetLabel: { fontFamily: fonts.mono, fontSize: 10, color: colors.onSurfaceSecondary, letterSpacing: 1, marginBottom: space.xs },
+  presetRow: { flexDirection: "row", gap: space.sm },
+  presetChip: {
+    flex: 1, alignItems: "center", justifyContent: "center", gap: 3, paddingVertical: space.sm,
+    borderWidth: BORDER, borderColor: colors.brand, backgroundColor: colors.brandTertiary,
+  },
+  presetText: { fontFamily: fonts.monoBold, fontSize: 10, color: colors.onSurface, letterSpacing: 0.3 },
   elRow: {
     flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 8,
     borderBottomWidth: 1, borderBottomColor: colors.divider,
