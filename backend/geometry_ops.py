@@ -108,16 +108,16 @@ def text_to_polylines(text: str, height_mm: float, x: float, y: float) -> List[P
     polys = tp.to_polygons(closed_only=False)
     if not polys:
         return []
-    # normalize to requested cap height
+    # normalize to requested cap height; flip Y (matplotlib is y-up, our plane is y-down)
     all_y = [pt[1] for poly in polys for pt in poly]
     all_x = [pt[0] for poly in polys for pt in poly]
     raw_h = (max(all_y) - min(all_y)) or 1.0
     scale = height_mm / raw_h
     min_x = min(all_x)
-    min_y = min(all_y)
+    max_y = max(all_y)
     out: List[Poly] = []
     for poly in polys:
-        line = [[float((px - min_x) * scale + x), float((py - min_y) * scale + y)] for px, py in poly]
+        line = [[float((px - min_x) * scale + x), float((max_y - py) * scale + y)] for px, py in poly]
         if len(line) >= 2:
             out.append(line)
     return out

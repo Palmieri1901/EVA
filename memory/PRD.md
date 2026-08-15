@@ -49,6 +49,10 @@ FastAPI condiviso; la Computer Vision gira sul backend.
 - ✅ **Riempi area con texture** (`geometry_ops.fill_pattern` + /api/geometry/fill): riempie il
   contorno (clip poligono) con texture teak diamante/incrociato/righe, stile SEMPLICE o BORDATO
   (cornice inset + campo), layer INCISIONE/TAGLIO. Pulsante "RIEMPI AREA" nell'editor.
+- ✅ **Import loghi SVG da file** (editor · modale SCRITTA/LOGO tipo SVG): pulsante "IMPORTA FILE
+  SVG" (expo-document-picker + expo-file-system) legge un file .svg, ne estrae i tracciati <path>
+  via `/api/geometry/svg` (svgpathtools) e li inserisce come elemento posizionabile/scalabile,
+  con scelta layer INCISIONE/TAGLIO. Il path SVG resta anche modificabile a mano.
 
 ## Backlog (prioritized)
 - **P0**: Test reali su fresa (Fase 6), correzione manuale bordo più ricca in caso di CV fallita.

@@ -17,6 +17,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 
 import { absUrl, api, ElementT, Layer, ProjectT } from "@/src/api";
 import { Btn, Segmented } from "@/src/components/ui";
@@ -63,6 +65,7 @@ export default function Editor() {
   const [contour, setContour] = useState<Pt[]>([]);
   const [elements, setElements] = useState<ElementT[]>([]);
   const [selNode, setSelNode] = useState<number | null>(null);
+  const [selElement, setSelElement] = useState<string | null>(null);
   const [mode, setMode] = useState<"points" | "texture">("points");
   const [step, setStep] = useState(1);
   const [teak, setTeak] = useState(false);
@@ -87,6 +90,8 @@ export default function Editor() {
   const [svgVal, setSvgVal] = useState(
     '<svg viewBox="0 0 100 100"><path d="M50 5 L61 39 L97 39 L68 61 L79 95 L50 74 L21 95 L32 61 L3 39 L39 39 Z"/></svg>'
   );
+  const [svgFileName, setSvgFileName] = useState<string | null>(null);
+  const [svgPicking, setSvgPicking] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
 
   // fill-area modal
@@ -146,6 +151,24 @@ export default function Editor() {
 
   const selectNearest = (sx: number, sy: number) => {
     const [mx, my] = toMM(sx, sy);
+    if (mode === "texture") {
+      let bestId: string | null = null, bestDe = 1e18;
+      elements.forEach((el) => {
+        el.polylines.forEach((pl) => {
+          pl.forEach((p) => {
+            const d = Math.hypot(p[0] - mx, p[1] - my);
+            if (d < bestDe) { bestDe = d; bestId = el.id; }
+          });
+        });
+      });
+      if (bestId && bestDe < scale * 26) {
+        Haptics.selectionAsync().catch(() => {});
+        setSelElement(bestId);
+      } else {
+        setSelElement(null);
+      }
+      return;
+    }
     let best = -1, bestD = 1e18;
     contour.forEach((p, i) => {
       const d = Math.hypot(p[0] - mx, p[1] - my);
@@ -209,6 +232,45 @@ export default function Editor() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
   };
 
+  const elCenter = (el: ElementT) => {
+    const pts = el.polylines.flat();
+    if (!pts.length) return { x: 0, y: 0 };
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+  };
+  const applyEl = async (id: string, fn: (p: Pt) => Pt) => {
+    const next = elements.map((e) =>
+      e.id === id ? { ...e, polylines: e.polylines.map((pl) => pl.map(fn)) } : e
+    );
+    setElements(next);
+    await save({ elements: next });
+  };
+  const moveEl = (dx: number, dy: number) => {
+    if (!selElement) return;
+    Haptics.selectionAsync().catch(() => {});
+    applyEl(selElement, (p) => [p[0] + dx, p[1] + dy]);
+  };
+  const rotateEl = (deg: number) => {
+    if (!selElement) return;
+    const el = elements.find((e) => e.id === selElement);
+    if (!el) return;
+    const c = elCenter(el);
+    const r = (deg * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
+    Haptics.selectionAsync().catch(() => {});
+    applyEl(selElement, (p) => {
+      const x = p[0] - c.x, y = p[1] - c.y;
+      return [c.x + x * cos - y * sin, c.y + x * sin + y * cos];
+    });
+  };
+  const scaleEl = (f: number) => {
+    if (!selElement) return;
+    const el = elements.find((e) => e.id === selElement);
+    if (!el) return;
+    const c = elCenter(el);
+    Haptics.selectionAsync().catch(() => {});
+    applyEl(selElement, (p) => [c.x + (p[0] - c.x) * f, c.y + (p[1] - c.y) * f]);
+  };
+
   const save = useCallback(
     async (extra: any = {}) => {
       if (!id) return;
@@ -238,6 +300,39 @@ export default function Editor() {
       toast(e.message, "error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const pickSvgFile = async () => {
+    setSvgPicking(true);
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ["image/svg+xml", "text/xml", "application/xml", "*/*"],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (res.canceled || !res.assets?.length) return;
+      const asset = res.assets[0];
+      const name = asset.name || "logo.svg";
+      if (!/\.svg$/i.test(name) && asset.mimeType !== "image/svg+xml") {
+        toast("Seleziona un file .svg valido", "error");
+        return;
+      }
+      const content = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      if (!content || !/<path/i.test(content)) {
+        toast("SVG senza tracciati <path> utilizzabili", "error");
+        return;
+      }
+      setSvgVal(content);
+      setSvgFileName(name);
+      Haptics.selectionAsync().catch(() => {});
+      toast(`Logo "${name}" caricato · premi AGGIUNGI`, "success");
+    } catch (e: any) {
+      toast(e.message || "Errore importazione SVG", "error");
+    } finally {
+      setSvgPicking(false);
     }
   };
 
@@ -281,10 +376,11 @@ export default function Editor() {
       const el: ElementT = { id: uid(), type: elType, layer: elLayer, polylines, params: {} };
       const next = [...elements, el];
       setElements(next);
+      setSelElement(el.id);
       await save({ elements: next });
       setAddOpen(false);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      toast("Elemento aggiunto", "success");
+      toast("Elemento aggiunto · trascina/sposta per posizionarlo", "success");
     } catch (e: any) {
       toast(e.message || "Errore aggiunta elemento", "error");
     } finally {
@@ -295,6 +391,7 @@ export default function Editor() {
   const delElement = async (eid: string) => {
     const next = elements.filter((e) => e.id !== eid);
     setElements(next);
+    if (selElement === eid) setSelElement(null);
     await save({ elements: next });
   };
 
@@ -478,8 +575,8 @@ export default function Editor() {
                       key={`${el.id}_${j}`}
                       points={ptsStr(pl)}
                       fill="none"
-                      stroke={el.layer === "CUT" ? colors.cut : colors.engrave}
-                      strokeWidth={sw}
+                      stroke={selElement === el.id ? colors.brand : el.layer === "CUT" ? colors.cut : colors.engrave}
+                      strokeWidth={selElement === el.id ? sw * 2 : sw}
                     />
                   ))
                 )}
@@ -564,7 +661,21 @@ export default function Editor() {
             }}
           />
         ) : (
-          <TexturePanel elements={elements} onAdd={() => setAddOpen(true)} onFill={() => setFillOpen(true)} onPreset={applyPreset} onDelete={delElement} />
+          <TexturePanel
+            elements={elements}
+            selId={selElement}
+            step={step}
+            setStep={setStep}
+            onSelect={(id: string) => setSelElement(id)}
+            onDeselect={() => setSelElement(null)}
+            onMove={moveEl}
+            onRotate={rotateEl}
+            onScale={scaleEl}
+            onAdd={() => setAddOpen(true)}
+            onFill={() => setFillOpen(true)}
+            onPreset={applyPreset}
+            onDelete={delElement}
+          />
         )}
       </View>
 
@@ -599,7 +710,29 @@ export default function Editor() {
                 <ModalField label="Testo" testID="modal-text" value={textVal} onChangeText={setTextVal} />
               )}
               {elType === "svg" && (
-                <ModalField label="SVG (path)" testID="modal-svg" value={svgVal} onChangeText={setSvgVal} multiline />
+                <>
+                  <Pressable
+                    testID="svg-import-file"
+                    onPress={pickSvgFile}
+                    disabled={svgPicking}
+                    style={styles.importBtn}
+                  >
+                    {svgPicking ? (
+                      <ActivityIndicator size="small" color={colors.onSurfaceInverse} />
+                    ) : (
+                      <>
+                        <Feather name="upload" size={16} color={colors.onSurfaceInverse} />
+                        <Text style={styles.importBtnText}>IMPORTA FILE SVG</Text>
+                      </>
+                    )}
+                  </Pressable>
+                  {svgFileName ? (
+                    <Text style={styles.importFileName} numberOfLines={1}>
+                      ✓ {svgFileName}
+                    </Text>
+                  ) : null}
+                  <ModalField label="SVG (path)" testID="modal-svg" value={svgVal} onChangeText={setSvgVal} multiline />
+                </>
               )}
               {(elType === "text" || elType === "svg" || elType === "rect" || elType === "circle" || elType === "line") && (
                 <ModalField
@@ -847,7 +980,74 @@ function PointsPanel(props: any) {
   );
 }
 
-function TexturePanel({ elements, onAdd, onFill, onPreset, onDelete }: any) {
+function TexturePanel({ elements, selId, step, setStep, onSelect, onDeselect, onMove, onRotate, onScale, onAdd, onFill, onPreset, onDelete }: any) {
+  const sel = elements.find((e: ElementT) => e.id === selId);
+  if (sel) {
+    return (
+      <View>
+        <View style={styles.selHead}>
+          <Text style={styles.selTitle}>SPOSTA · {sel.type.toUpperCase()}</Text>
+          <Pressable testID="deselect-element" onPress={onDeselect} hitSlop={10} style={styles.selDone}>
+            <Feather name="check" size={16} color={colors.onBrand} />
+            <Text style={styles.selDoneText}>FATTO</Text>
+          </Pressable>
+        </View>
+        <View style={styles.padRow}>
+          <View style={styles.dpad}>
+            <Pressable testID="el-up" style={styles.dbtn} onPress={() => onMove(0, -step)}>
+              <Feather name="arrow-up" size={18} color={colors.onSurface} />
+            </Pressable>
+            <View style={styles.dpadMid}>
+              <Pressable testID="el-left" style={styles.dbtn} onPress={() => onMove(-step, 0)}>
+                <Feather name="arrow-left" size={18} color={colors.onSurface} />
+              </Pressable>
+              <View style={[styles.dbtn, { borderColor: colors.brand }]}>
+                <Text style={styles.stepText}>{step}mm</Text>
+              </View>
+              <Pressable testID="el-right" style={styles.dbtn} onPress={() => onMove(step, 0)}>
+                <Feather name="arrow-right" size={18} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            <Pressable testID="el-down" style={styles.dbtn} onPress={() => onMove(0, step)}>
+              <Feather name="arrow-down" size={18} color={colors.onSurface} />
+            </Pressable>
+          </View>
+          <View style={{ flex: 1, gap: space.sm }}>
+            <View style={styles.stepChips}>
+              {[1, 5, 10, 25].map((s) => (
+                <Pressable key={s} testID={`el-step-${s}`} onPress={() => setStep(s)} style={[styles.stepChip, step === s && { backgroundColor: colors.surfaceInverse }]}>
+                  <Text style={[styles.stepChipText, step === s && { color: colors.onSurfaceInverse }]}>{s}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={{ flexDirection: "row", gap: space.sm }}>
+              <Pressable testID="el-rot-l" style={styles.actBtn} onPress={() => onRotate(-15)}>
+                <MaterialCommunityIcons name="rotate-left" size={16} color={colors.onSurface} />
+                <Text style={styles.actText}>−15°</Text>
+              </Pressable>
+              <Pressable testID="el-rot-r" style={styles.actBtn} onPress={() => onRotate(15)}>
+                <MaterialCommunityIcons name="rotate-right" size={16} color={colors.onSurface} />
+                <Text style={styles.actText}>+15°</Text>
+              </Pressable>
+            </View>
+            <View style={{ flexDirection: "row", gap: space.sm }}>
+              <Pressable testID="el-scale-down" style={styles.actBtn} onPress={() => onScale(0.9)}>
+                <Feather name="minimize-2" size={16} color={colors.onSurface} />
+                <Text style={styles.actText}>PICCOLO</Text>
+              </Pressable>
+              <Pressable testID="el-scale-up" style={styles.actBtn} onPress={() => onScale(1.1)}>
+                <Feather name="maximize-2" size={16} color={colors.onSurface} />
+                <Text style={styles.actText}>GRANDE</Text>
+              </Pressable>
+              <Pressable testID="el-delete" style={[styles.actBtn, { borderColor: colors.error }]} onPress={() => onDelete(sel.id)}>
+                <Feather name="trash-2" size={16} color={colors.error} />
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  }
   return (
     <View>
       <Text style={styles.presetLabel}>LIBRERIA TEXTURE · UN TOCCO</Text>
@@ -866,25 +1066,30 @@ function TexturePanel({ elements, onAdd, onFill, onPreset, onDelete }: any) {
         </Pressable>
       </View>
       <View style={{ height: space.sm }} />
-      <Pressable testID="fill-area-btn" onPress={onFill} style={styles.fillBtn}>
-        <MaterialCommunityIcons name="tune-variant" size={18} color={colors.onSurfaceInverse} />
-        <Text style={styles.fillText}>RIEMPI AREA (PERSONALIZZATO)</Text>
-      </Pressable>
-      <View style={{ height: space.sm }} />
-      <Btn testID="add-element-btn" label="AGGIUNGI SCRITTA / FORMA / SVG" icon={<Feather name="plus" size={18} color={colors.onBrand} />} onPress={onAdd} />
-      <ScrollView style={{ maxHeight: 96, marginTop: space.sm }}>
+      <View style={{ flexDirection: "row", gap: space.sm }}>
+        <Pressable testID="fill-area-btn" onPress={onFill} style={[styles.fillBtn, { flex: 1 }]}>
+          <MaterialCommunityIcons name="tune-variant" size={16} color={colors.onSurfaceInverse} />
+          <Text style={styles.fillText}>RIEMPI</Text>
+        </Pressable>
+        <Pressable testID="add-element-btn" onPress={onAdd} style={[styles.fillBtn, { flex: 1, backgroundColor: colors.brand }]}>
+          <Feather name="plus" size={16} color={colors.onBrand} />
+          <Text style={[styles.fillText, { color: colors.onBrand }]}>SCRITTA / LOGO</Text>
+        </Pressable>
+      </View>
+      <ScrollView style={{ maxHeight: 92, marginTop: space.sm }}>
         {elements.length === 0 ? (
-          <Text style={styles.emptyEl}>Nessun elemento. Riempi l'area o aggiungi incisioni/tagli.</Text>
+          <Text style={styles.emptyEl}>Tocca un elemento sul disegno per spostarlo, oppure aggiungi scritta/logo.</Text>
         ) : (
           elements.map((el: ElementT) => (
-            <View key={el.id} style={styles.elRow} testID={`element-${el.id}`}>
+            <Pressable key={el.id} style={styles.elRow} testID={`element-${el.id}`} onPress={() => onSelect(el.id)}>
               <View style={[styles.elDot, { backgroundColor: el.layer === "CUT" ? colors.cut : colors.engrave }]} />
               <Text style={styles.elName}>{el.type.toUpperCase()}</Text>
               <Text style={styles.elLayer}>{el.layer}</Text>
+              <Feather name="move" size={15} color={colors.onSurfaceTertiary} />
               <Pressable testID={`del-element-${el.id}`} onPress={() => onDelete(el.id)} hitSlop={8}>
                 <Feather name="trash-2" size={16} color={colors.error} />
               </Pressable>
-            </View>
+            </Pressable>
           ))
         )}
       </ScrollView>
@@ -976,6 +1181,10 @@ const styles = StyleSheet.create({
     minWidth: 64, paddingVertical: 8, borderWidth: BORDER, borderColor: colors.brand, backgroundColor: colors.brandTertiary,
   },
   rotValText: { fontFamily: fonts.monoBold, fontSize: fontSize.sm, color: colors.onSurface },
+  selHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: space.sm },
+  selTitle: { fontFamily: fonts.display, fontSize: fontSize.base, color: colors.onSurface, letterSpacing: 0.5 },
+  selDone: { flexDirection: "row", gap: 4, alignItems: "center", backgroundColor: colors.brand, borderWidth: BORDER, borderColor: colors.borderStrong, paddingHorizontal: space.md, paddingVertical: 6 },
+  selDoneText: { fontFamily: fonts.monoBold, fontSize: fontSize.sm, color: colors.onBrand },
   elRow: {
     flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 8,
     borderBottomWidth: 1, borderBottomColor: colors.divider,
@@ -994,6 +1203,9 @@ const styles = StyleSheet.create({
   typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.lg },
   typeChip: { borderWidth: BORDER, borderColor: colors.borderStrong, paddingHorizontal: space.md, paddingVertical: 8, backgroundColor: colors.surface },
   typeChipText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface },
+  importBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm, borderWidth: BORDER, borderColor: colors.borderStrong, backgroundColor: colors.surfaceInverse, paddingVertical: 12, marginBottom: space.sm },
+  importBtnText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurfaceInverse, textTransform: "uppercase", letterSpacing: 0.5 },
+  importFileName: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.brand, marginBottom: space.md },
   modalInput: {
     borderWidth: BORDER, borderColor: colors.borderStrong, fontFamily: fonts.mono,
     fontSize: fontSize.base, color: colors.onSurface, paddingHorizontal: space.md, paddingVertical: space.md,
