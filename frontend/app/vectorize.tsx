@@ -42,6 +42,8 @@ export default function Vectorize() {
   const { machine } = useMachine();
 
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [subject, setSubject] = useState<"scritta" | "logo" | "oggetto">("logo");
+  const [internals, setInternals] = useState(false);
   const [invert, setInvert] = useState(true);
   const [widthMm, setWidthMm] = useState("200");
   const [autoThr, setAutoThr] = useState(true);
@@ -88,6 +90,8 @@ export default function Vectorize() {
     try {
       const r = await api.vectorize(imageUri, {
         invert,
+        subject,
+        internals,
         target_width_mm: parseFloat(widthMm) || 200,
         threshold: autoThr ? -1 : parseInt(thr) || 128,
       });
@@ -199,8 +203,29 @@ export default function Vectorize() {
           </Pressable>
         </View>
 
+        <Text style={styles.label}>Cosa rilevare</Text>
+        <View style={styles.segRow}>
+          {([["scritta", "SCRITTA"], ["logo", "LOGO"], ["oggetto", "OGGETTO"]] as const).map(([v, l]) => (
+            <Pressable
+              key={v}
+              testID={`subject-${v}`}
+              style={[styles.segBtn, subject === v && styles.toggleOn]}
+              onPress={() => { Haptics.selectionAsync().catch(() => {}); setSubject(v); setResult(null); }}
+            >
+              <Text style={[styles.toggleText, subject === v && styles.toggleTextOn]}>{l}</Text>
+            </Pressable>
+          ))}
+        </View>
+
         <Text style={styles.label}>Larghezza reale del logo (mm)</Text>
         <TextInput testID="vec-width" value={widthMm} onChangeText={setWidthMm} keyboardType="decimal-pad" style={styles.input} />
+
+        <View style={styles.toggleRow}>
+          <Pressable testID="vec-internals" style={[styles.toggle, internals && styles.toggleOn]} onPress={() => { setInternals(!internals); setResult(null); }}>
+            <Feather name={internals ? "check-square" : "square"} size={16} color={internals ? colors.onSurfaceInverse : colors.onSurface} />
+            <Text style={[styles.toggleText, internals && styles.toggleTextOn]}>Dettagli interni (fori, linee)</Text>
+          </Pressable>
+        </View>
 
         <View style={styles.toggleRow}>
           <Pressable testID="vec-invert" style={[styles.toggle, invert && styles.toggleOn]} onPress={() => setInvert(!invert)}>
@@ -310,6 +335,8 @@ const styles = StyleSheet.create({
   },
   pickText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface },
   label: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginBottom: space.xs, textTransform: "uppercase" },
+  segRow: { flexDirection: "row", gap: space.sm, marginBottom: space.md },
+  segBtn: { flex: 1, alignItems: "center", borderWidth: BORDER, borderColor: colors.borderStrong, paddingVertical: 10, backgroundColor: colors.surface },
   input: {
     borderWidth: BORDER, borderColor: colors.borderStrong, backgroundColor: colors.surface,
     paddingHorizontal: space.md, paddingVertical: 12, fontFamily: fonts.mono, fontSize: fontSize.base, color: colors.onSurface,

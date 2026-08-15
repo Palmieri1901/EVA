@@ -25,7 +25,20 @@ def vectorize_image(
     target_width_mm: float = 200.0,
     simplify: float = 0.005,   # fraction of perimeter for approxPolyDP
     min_area_frac: float = 0.0008,
+    subject: str = "logo",     # scritta | logo | oggetto
+    internals: bool = False,   # keep inner contours (letter holes, inner lines)
 ) -> dict:
+    # Tune tracing to what we are detecting.
+    presets = {
+        "scritta": {"min_area_frac": 0.0003, "simplify": 0.004, "largest_only": False},
+        "logo":    {"min_area_frac": 0.0010, "simplify": 0.006, "largest_only": False},
+        "oggetto": {"min_area_frac": 0.0040, "simplify": 0.010, "largest_only": True},
+    }
+    pr = presets.get((subject or "logo").lower(), presets["logo"])
+    min_area_frac = pr["min_area_frac"]
+    simplify = pr["simplify"]
+    largest_only = pr["largest_only"] and not internals
+
     arr = np.frombuffer(image_bytes, dtype=np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if img is None:
@@ -51,7 +64,8 @@ def vectorize_image(
     binimg = cv2.morphologyEx(binimg, cv2.MORPH_CLOSE, kernel, iterations=2)
     binimg = cv2.morphologyEx(binimg, cv2.MORPH_OPEN, kernel, iterations=1)
 
-    contours, _ = cv2.findContours(binimg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    retr = cv2.RETR_CCOMP if internals else cv2.RETR_EXTERNAL
+    contours, _ = cv2.findContours(binimg, retr, cv2.CHAIN_APPROX_SIMPLE)
     img_area = binimg.shape[0] * binimg.shape[1]
     polys_px: List[Poly] = []
     for c in contours:
@@ -67,6 +81,10 @@ def vectorize_image(
 
     if not polys_px:
         raise ValueError("Nessuna forma rilevata: regola la soglia o migliora la foto")
+
+    if largest_only and len(polys_px) > 1:
+        polys_px = [max(polys_px, key=lambda poly: cv2.contourArea(
+            np.array(poly, dtype=np.float32).reshape(-1, 1, 2)))]
 
     # scale to target width (mm), keep aspect, origin at (0,0)
     xs = [p[0] for poly in polys_px for p in poly]

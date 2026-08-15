@@ -771,11 +771,13 @@ async def vectorize_photo(
     invert: bool = Form(True),
     target_width_mm: float = Form(200.0),
     simplify: float = Form(0.005),
+    subject: str = Form("logo"),
+    internals: bool = Form(False),
 ):
     data = await file.read()
     try:
         res = await run_in_threadpool(
-            vec.vectorize_image, data, threshold, invert, target_width_mm, simplify
+            vec.vectorize_image, data, threshold, invert, target_width_mm, simplify, 0.0008, subject, internals
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

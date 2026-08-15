@@ -75,9 +75,11 @@ FastAPI condiviso; la Computer Vision gira sul backend.
 - ✅ **Selettore macchina** (home, context `machine.tsx` persistito): due pulsanti FRESA CNC / LASER.
   In modalità LASER l'export offre solo DXF/SVG in solo-TAGLIO (per tagliare la gomma dei gommoni).
 - ✅ **Vettorizza logo/scritta da foto** (`vectorize.py` + `/api/vectorize`, schermata `/vectorize`):
-  da una foto (scuro su sfondo chiaro) traccia la silhouette (contorni esterni OpenCV), scala alla
-  larghezza reale in mm, genera DXF scaricabile e/o lo inserisce come elemento in un tappeto
-  (`/projects/{id}/elements`, layer TAGLIO/INCISIONE). Anteprima del tracciato inclusa.
+  da una foto (scuro su sfondo chiaro) traccia i contorni (OpenCV), scala alla larghezza reale in
+  mm, genera DXF scaricabile e/o lo inserisce come elemento in un tappeto
+  (`/projects/{id}/elements`, layer TAGLIO/INCISIONE). Anteprima del tracciato inclusa. Selettore
+  **cosa rilevare** (Scritta/Logo/Oggetto → preset area+semplificazione, "Oggetto" tiene solo la
+  forma più grande) e toggle **Dettagli interni** (RETR_CCOMP: fori delle lettere/linee interne).
 
 ## Backlog (prioritized)
 - **P0**: Test reali su fresa (Fase 6), correzione manuale bordo più ricca in caso di CV fallita.
