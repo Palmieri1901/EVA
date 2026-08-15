@@ -362,6 +362,15 @@ export default function Editor() {
       setBusy: setFillBusy,
     });
 
+  const bumpAngle = (d: number) => {
+    setFillAuto(false);
+    const cur = parseFloat(fillAngle) || 0;
+    let next = (cur + d) % 180;
+    if (next < 0) next += 180;
+    setFillAngle(String(Math.round(next)));
+    Haptics.selectionAsync().catch(() => {});
+  };
+
   const applyPreset = (name: "doghe" | "diamante" | "incrociato") => {
     if (name === "doghe") {
       runFill({ pattern: "lines", spacing: 60, angle: 0, auto: true, style: "bordato", border: 40, groove: 5, board: 400, layer: "ENGRAVE" });
@@ -697,6 +706,25 @@ export default function Editor() {
                 </View>
               </View>
 
+              <View style={styles.rotRow}>
+                <Pressable testID="rot-m15" style={styles.rotBtn} onPress={() => bumpAngle(-15)}>
+                  <Text style={styles.rotBtnText}>−15°</Text>
+                </Pressable>
+                <Pressable testID="rot-m5" style={styles.rotBtn} onPress={() => bumpAngle(-5)}>
+                  <Text style={styles.rotBtnText}>−5°</Text>
+                </Pressable>
+                <View style={styles.rotVal}>
+                  <MaterialCommunityIcons name="rotate-right" size={14} color={colors.brand} />
+                  <Text style={styles.rotValText}>{fillAuto ? "AUTO" : `${Math.round(parseFloat(fillAngle) || 0)}°`}</Text>
+                </View>
+                <Pressable testID="rot-p5" style={styles.rotBtn} onPress={() => bumpAngle(5)}>
+                  <Text style={styles.rotBtnText}>+5°</Text>
+                </Pressable>
+                <Pressable testID="rot-p15" style={styles.rotBtn} onPress={() => bumpAngle(15)}>
+                  <Text style={styles.rotBtnText}>+15°</Text>
+                </Pressable>
+              </View>
+
               <ModalField label="Spessore solco caulking (mm)" testID="fill-groove" value={fillGroove} onChangeText={setFillGroove} keyboardType="decimal-pad" />
 
               <ModalField label="Lunghezza doga · sfalsata (mm, 0 = continua)" testID="fill-board" value={fillBoard} onChangeText={setFillBoard} keyboardType="decimal-pad" />
@@ -937,6 +965,17 @@ const styles = StyleSheet.create({
     borderWidth: BORDER, borderColor: colors.brand, backgroundColor: colors.brandTertiary,
   },
   presetText: { fontFamily: fonts.monoBold, fontSize: 10, color: colors.onSurface, letterSpacing: 0.3 },
+  rotRow: { flexDirection: "row", gap: space.sm, alignItems: "center", marginBottom: space.md },
+  rotBtn: {
+    flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 8,
+    borderWidth: BORDER, borderColor: colors.borderStrong, backgroundColor: colors.surface,
+  },
+  rotBtnText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface },
+  rotVal: {
+    flexDirection: "row", gap: 4, alignItems: "center", justifyContent: "center",
+    minWidth: 64, paddingVertical: 8, borderWidth: BORDER, borderColor: colors.brand, backgroundColor: colors.brandTertiary,
+  },
+  rotValText: { fontFamily: fonts.monoBold, fontSize: fontSize.sm, color: colors.onSurface },
   elRow: {
     flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 8,
     borderBottomWidth: 1, borderBottomColor: colors.divider,
