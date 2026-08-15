@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 7 (bug fix): validated auto-circle detection for round logos in LOGO/OGGETTO modes. Created /app/backend/tests/test_vectorize_auto_circle.py — 9/9 PASS. Coverage: (1) POST /api/vectorize subject=logo on a centered outlined ring (500x500, r=180, thick 6, color 30/30/30) returns count==1 with a clean ~96-pt (97 with wrap) circular polyline that passes an equidistant-radii check (std/mean < 0.12). (2) subject=oggetto on the same image also auto-detects the circle and emits a 90+ pt circular polyline. (3) subject=cerchio on the same image returns a ~96-pt circle. (4) subject=cerchio on a FILLED black disc uses the min-enclosing-circle fallback and still returns a 90+ pt circular polyline (this is the fallback branch at vectorize.py:118-122). (5) REGRESSION subject=logo on 'ABC' text (Liberation Sans Bold, black on white) is NOT auto-circled — largest polyline is a small approxPolyDP+chaikin trace, not a regular circle. (6) REGRESSION subject=scritta on text never auto-circles (no branch takes it there). (7) REGRESSION subject=logo on an off-center rectangle (60,60)-(260,180) returns a traced polygon, not a forced circle. (8) Blank white 400x400 image still returns 422. (9) Manual threshold=100 + invert=true on text returns 200 (auto-circle guard `threshold is None or threshold < 0` correctly disables the auto-circle branch — server.py passes threshold=100 through, vectorize.py:218-219 skips the _dominant_circle path). Backend-only testing per request; frontend skipped.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_vectorize_auto_circle.py",
+    "/app/test_reports/pytest/iter7_auto_circle.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "vectorize.py:94-106 _dominant_circle guards: r >= 0.28*min(w,h) AND center within [w*0.3, h*0.35] of image center AND uses p2=55 (stricter than _detect_circles p2=45). Good — this is what prevents false positives on text/rectangles.",
+    "vectorize.py:218-221 the auto-circle branch in vectorize_image only fires for subject in {logo, oggetto} when internals=False AND (threshold is None or threshold < 0). The guard correctly disables the branch when the user sets a manual threshold, which matches the requested behavior.",
+    "vectorize.py:221 calls _dominant_circle() TWICE (once in the condition, once to unpack). Not a bug but wastes a HoughCircles call (~50-150ms). Minor perf: cache the result. Not blocking.",
+    "vectorize.py:109-126 _detect_circles fallback flips the mask if the border is bright (matches subject-inverted convention) and uses cv2.minEnclosingCircle on the largest contour — verified working for filled discs in test_cerchio_on_filled_disc_uses_fallback.",
+    "server.py:788 correctly forwards subject through to vectorize_image; ValueError from 'Nessun cerchio rilevato' is mapped to HTTP 422 at server.py:790-791."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_vectorize_auto_circle.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (9/9 auto-circle suite; the earlier 10/10 iter6 roi+cerchio+threshold suite also still passes)",
+    "frontend": "N/A (skipped per request)"
+  },
+  "seed_data_creation": "None. Stateless synthetic-image tests; no Mongo writes.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Seven backend pytest suites now under /app/backend/tests/. To run only the auto-circle regression: `export $(grep -v '^#' /app/frontend/.env | xargs) && python -m pytest backend/tests/test_vectorize_auto_circle.py -v`. Helpful helpers in that file: _centered_ring() (outlined ring, HoughCircles-friendly), _centered_disc() (filled disc, exercises min-enclosing-circle fallback), _text_abc_png() (regression: text must NOT be auto-circled), _looks_like_circle(poly) (equidistant-radii check with tol 0.12). Note: the bug fix in vectorize.py:214-221 branches on subject BEFORE binarization, and correctly requires threshold<0 to allow auto-circle (manual threshold path traces normally). Iter6 finding still stands: HoughCircles alone doesn't detect filled discs but subject=cerchio has a min-enclosing-circle fallback that does; subject=logo/oggetto do NOT have that fallback — that's by design (they only auto-circle when Hough finds a dominant centered circle).",
+  "rca_of_issue": "Original bug: photo of BMW round logo produced a messy partial blob in LOGO/OGGETTO modes because binarization + contour tracing + morphology couldn't recover a clean ring from a real photo. Fix (vectorize.py:214-221): before the generic binarization path, when subject in {logo, oggetto} with auto threshold and internals=False, call _dominant_circle() (stricter Hough params p2=55, requires r>=28% of min dim and center within 30/35% of image center). If a candidate is found, emit a synthesized 96-point circular polyline via _circle_poly(). This bypasses the messy blob entirely. subject=cerchio has an additional min-enclosing-circle fallback for filled discs. Guardrails prevent false positives on text/rectangles (verified by tests 5,6,7). Fix verified end-to-end via HTTP through the public preview URL."
+}

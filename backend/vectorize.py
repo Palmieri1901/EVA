@@ -76,18 +76,42 @@ def _crop_letterbox(img: np.ndarray) -> np.ndarray:
     return img[top:bot + 1, left:right + 1]
 
 
+def _circle_poly(cx: float, cy: float, r: float, n: int = 96) -> Poly:
+    poly = [[float(cx + r * np.cos(t)), float(cy + r * np.sin(t))]
+            for t in np.linspace(0, 2 * np.pi, n, endpoint=False)]
+    poly.append(poly[0])
+    return poly
+
+
+def _hough(gray: np.ndarray, w: int, h: int, p2: int = 45):
+    g = cv2.medianBlur(gray, 5)
+    return cv2.HoughCircles(
+        g, cv2.HOUGH_GRADIENT, dp=1.2, minDist=int(min(w, h) * 0.5),
+        param1=110, param2=p2, minRadius=int(min(w, h) * 0.12), maxRadius=int(min(w, h) * 0.60),
+    )
+
+
+def _dominant_circle(gray: np.ndarray, w: int, h: int):
+    """Return (cx,cy,r) only if a clearly dominant, roughly-centred circle exists.
+    Used to auto-clean round logos even in LOGO/OGGETTO modes."""
+    circles = _hough(gray, w, h, p2=55)
+    if circles is None:
+        return None
+    circles = np.round(circles[0, :]).astype(int)
+    cx, cy, r = max(circles, key=lambda c: c[2])
+    if r < 0.28 * min(w, h):
+        return None
+    if abs(cx - w / 2) > w * 0.3 or abs(cy - h / 2) > h * 0.35:
+        return None
+    return (cx, cy, r)
+
+
 def _detect_circles(gray: np.ndarray, w: int, h: int) -> List[Poly]:
     """Detect circular logos/emblems and return perfect circle polylines (px)."""
-    g = cv2.medianBlur(gray, 5)
-    minr = int(min(w, h) * 0.12)
-    maxr = int(min(w, h) * 0.60)
-    circles = cv2.HoughCircles(
-        g, cv2.HOUGH_GRADIENT, dp=1.2, minDist=int(min(w, h) * 0.5),
-        param1=110, param2=45, minRadius=minr, maxRadius=maxr,
-    )
+    circles = _hough(gray, w, h, p2=45)
     if circles is None:
         # fallback: fit a circle to the largest foreground blob (filled discs)
-        _, b = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        _, b = cv2.threshold(cv2.medianBlur(gray, 5), 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         border = np.concatenate([b[0, :], b[-1, :], b[:, 0], b[:, -1]])
         if border.mean() > 140:
             b = cv2.bitwise_not(b)
@@ -96,16 +120,10 @@ def _detect_circles(gray: np.ndarray, w: int, h: int) -> List[Poly]:
         if not cnts:
             return []
         (cx, cy), r = cv2.minEnclosingCircle(max(cnts, key=cv2.contourArea))
-        cx, cy, r = int(cx), int(cy), int(r)
     else:
         circles = np.round(circles[0, :]).astype(int)
-        # keep the largest circle
         cx, cy, r = max(circles, key=lambda c: c[2])
-    n = 96
-    poly = [[float(cx + r * np.cos(t)), float(cy + r * np.sin(t))]
-            for t in np.linspace(0, 2 * np.pi, n, endpoint=False)]
-    poly.append(poly[0])
-    return [poly]
+    return [_circle_poly(cx, cy, r)]
 
 
 def _grabcut_mask(img: np.ndarray) -> np.ndarray:
@@ -197,6 +215,10 @@ def vectorize_image(
         polys_px = _detect_circles(gray, w, h)
         if not polys_px:
             raise ValueError("Nessun cerchio rilevato: ritaglia meglio attorno al logo")
+    elif (subj in ("logo", "oggetto") and not internals and (threshold is None or threshold < 0)
+          and (_auto_c := _dominant_circle(gray, w, h)) is not None):
+        # round logo/emblem detected -> clean circular outline (avoids messy blobs)
+        polys_px = [_circle_poly(*_auto_c)]
     else:
         binimg = _binarize(img, gray, threshold, invert, subj, internals)
 

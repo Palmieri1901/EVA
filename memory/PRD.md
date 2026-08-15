@@ -77,7 +77,9 @@ FastAPI condiviso; la Computer Vision gira sul backend.
 - ✅ **Selezione area (ROI), Rileva cerchi, Cursore soglia** nella schermata Vettorizza:
   ROI = rettangolo trascinabile sull'immagine (param `roi` {x,y,w,h}, ritaglio server-side);
   CERCHIO = `subject=cerchio` con HoughCircles + fallback minEnclosingCircle (dischi pieni) →
-  contorno tondo perfetto; slider soglia 0-255 con AUTO.
+  contorno tondo perfetto; slider soglia 0-255 con AUTO. Inoltre in LOGO/OGGETTO viene rilevato
+  **automaticamente il cerchio dominante centrato** (es. emblema BMW) e restituito come cerchio
+  pulito, evitando blob confusi; i soggetti non tondi vengono tracciati normalmente.
 - ✅ **Vettorizza da foto — pipeline robusta** (`vectorize.py`): auto-crop bande uniformi,
   CLAHE+bilaterale, **GrabCut** per rimuovere lo sfondo (logo/oggetto), soglia intensità per
   scritte/soglia manuale/dettagli interni, smoothing Chaikin. Ritaglio abilitato nel picker
