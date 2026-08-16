@@ -53,7 +53,10 @@ export default function NewProject() {
         blade_offset_mm: parseFloat(offset) || 0,
         capture_mode: captureMode,
       });
-      const dest = captureMode === "multi" ? `/shots/${proj.id}` : `/capture?id=${proj.id}`;
+      const dest =
+        captureMode === "multi" ? `/shots/${proj.id}`
+        : captureMode === "photogram" ? `/photogram/${proj.id}`
+        : `/capture?id=${proj.id}`;
       router.replace(dest as any);
     } catch (e: any) {
       toast(e.message || "Errore creazione pezzo", "error");
@@ -92,6 +95,7 @@ export default function NewProject() {
           options={[
             { label: "SCATTO SINGOLO", value: "single" },
             { label: "MULTI-SCATTO", value: "multi" },
+            { label: "MULTI-FOTO 3D", value: "photogram" },
           ]}
         />
         {captureMode === "multi" && (
@@ -100,6 +104,16 @@ export default function NewProject() {
             <Text style={styles.infoText}>
               Per aree fino a 2×3 m: scatta più foto sovrapposte, ognuna condividendo almeno 4
               bollini con la precedente. L'interasse qui sotto è quello dei 4 bollini del primo scatto.
+            </Text>
+          </View>
+        )}
+        {captureMode === "photogram" && (
+          <View style={[styles.infoBox, { marginTop: space.md, marginBottom: 0 }]}>
+            <Feather name="aperture" size={14} color={colors.brand} />
+            <Text style={styles.infoText}>
+              Pezzo piatto senza bollini: scatta 3–8 foto da varie angolazioni a circa 1 m. Le unisco
+              in un'unica immagine; poi indichi un riferimento di misura nota (rettangolo o linea) per
+              la scala e ricavo il contorno. Il diametro bollino e l'interasse qui sotto non servono.
             </Text>
           </View>
         )}

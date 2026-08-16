@@ -26,7 +26,21 @@ async function req(path: string, options: RequestInit = {}) {
 export type BackgroundMode = "blue_on_white" | "white_on_dark";
 export type CutSide = "inner" | "outer";
 export type Layer = "CUT" | "ENGRAVE";
-export type CaptureMode = "single" | "multi";
+export type CaptureMode = "single" | "multi" | "photogram";
+
+export interface PgPhotoT {
+  id: string;
+  order: number;
+  photo_path: string;
+  photo_url?: string | null;
+}
+
+export interface PgStitchResult {
+  mosaic_url: string;
+  w: number;
+  h: number;
+  warning?: string | null;
+}
 
 export interface ShotT {
   id: string;
@@ -154,8 +168,32 @@ export const api = {
   stitch: (id: string): Promise<StitchResult> =>
     req(`/projects/${id}/stitch`, { method: "POST" }),
 
-  async addShot(projectId: string, uri: string): Promise<ShotT> {
+  // Photogrammetry (markerless, flat pieces)
+  listPgPhotos: (id: string): Promise<PgPhotoT[]> =>
+    req(`/projects/${id}/photogram/photos`),
+  deletePgPhoto: (id: string, photoId: string) =>
+    req(`/projects/${id}/photogram/photos/${photoId}`, { method: "DELETE" }),
+  pgStitch: (id: string): Promise<PgStitchResult> =>
+    req(`/projects/${id}/photogram/stitch`, { method: "POST" }),
+  pgExtract: (id: string, reference: any): Promise<ProjectT & { detected?: boolean }> =>
+    req(`/projects/${id}/photogram/extract`, { method: "POST", body: JSON.stringify(reference) }),
+
+  async addPgPhoto(projectId: string, uri: string): Promise<PgPhotoT> {
     const form = new FormData();
+    const name = `pg_${Date.now()}.jpg`;
+    if (Platform.OS === "web") {
+      const blob = await (await fetch(uri)).blob();
+      form.append("file", blob, name);
+    } else {
+      // @ts-ignore native multipart shape
+      form.append("file", { uri, name, type: "image/jpeg" });
+    }
+    const res = await fetch(`${API}/projects/${projectId}/photogram/photos`, { method: "POST", body: form });
+    if (!res.ok) throw new Error(`Upload foto fallito (${res.status})`);
+    return res.json();
+  },
+
+  async addShot(projectId: string, uri: string): Promise<ShotT> {    const form = new FormData();
     const name = `shot_${Date.now()}.jpg`;
     if (Platform.OS === "web") {
       const blob = await (await fetch(uri)).blob();

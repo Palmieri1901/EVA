@@ -84,6 +84,7 @@ export default function BoatDetail() {
 
   const pieceRoute = (p: ProjectT) => {
     if (p.capture_mode === "multi" && ["draft", "captured"].includes(p.status)) return `/shots/${p.id}`;
+    if (p.capture_mode === "photogram" && ["draft", "captured"].includes(p.status)) return `/photogram/${p.id}`;
     if (p.status === "draft") return `/capture?id=${p.id}`;
     return `/editor/${p.id}`;
   };

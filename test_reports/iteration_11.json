@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 11 (markerless photogrammetry): Backend 15/15 pytest PASS against the public preview URL (photos CRUD, stitch 400/200, extract line+rect happy paths + all 5 error codes). Frontend reference-phase flow on pre-seeded project /photogram/6a81744777f2fd398faa2c4b FAILED: after clicking UNISCI FOTO the app correctly transitions to the REFERIMENTO screen, LINEA is selectable, the mosaic renders on pg-canvas, the points counter reaches 2/2 and ESTRAI CONTORNO fires, BUT: (1) the two tap coordinates sent to the backend are null (JSON serialisation of NaN), so POST /api/projects/{id}/photogram/extract returns HTTP 500 with an unhandled TypeError from photogram.py:156 (`x1 - x0` on NoneType), and navigation to /editor/{id} never happens. (2) Root cause is in /app/frontend/app/photogram/[id].tsx onImgPress: it reads e.nativeEvent.locationX / locationY, which are undefined on React Native Web for Pressable, producing NaN screen->mosaic coords. (3) Secondary bug: backend should validate malformed points (null/NaN entries) and return 422 instead of 500. Console shows many `<circle>/<line> attribute NaN` warnings from Svg overlay while points contain NaN.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/projects/{id}/photogram/extract", "issue": "Unhandled TypeError -> HTTP 500 when points contain null/None (e.g. from a client that sends [[null,null],[null,null]]). Should validate coords and raise 422 instead. Repro: `curl -X POST .../photogram/extract -d '{\"type\":\"line\",\"points\":[[null,null],[null,null]],\"length_mm\":150}'`. Backtrace: photogram.py:156 `x1 - x0` on NoneType.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "photogram/[id].tsx onImgPress", "issue": "On React Native Web, Pressable's onPress event does NOT populate e.nativeEvent.locationX / locationY. Result: mx = NaN, my = NaN -> setPoints stores {x:NaN,y:NaN}, Svg renders `<circle cx=NaN>` etc., and JSON.stringify converts NaN -> null so backend receives [[null,null],[null,null]] and crashes 500. Fix: read e.nativeEvent.offsetX/offsetY (web) or measure the Pressable and use pageX/pageY - originX; alternatively use a react-native-gesture-handler TapGestureHandler which reliably exposes x/y on both native and web. Reference: /app/frontend/app/photogram/[id].tsx:147-158.", "testID": "pg-canvas", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [
+      {"flow": "photogram reference -> extract -> editor", "issue": "ESTRAI CONTORNO on web sends null coords -> backend 500, so router.replace(/editor/{id}) never runs and the user is stuck on RIFERIMENTO. Works on native only.", "affected_testIDs": ["pg-canvas", "pg-extract"]}
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "Pressable onPress locationX/locationY", "issue": "Known RN-Web limitation: locationX/locationY are undefined on Pressable's synthetic event. Photogram reference-phase relies on them. Reference: /app/frontend/app/photogram/[id].tsx:149."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_photogram.py",
+    "/app/test_reports/pytest/iter11_photogram.xml"
+  ],
+  "action_items": [
+    "FRONTEND: In /app/frontend/app/photogram/[id].tsx onImgPress, replace `const { locationX, locationY } = e.nativeEvent;` with a web-safe fallback, e.g. `const lx = e.nativeEvent.locationX ?? e.nativeEvent.offsetX; const ly = e.nativeEvent.locationY ?? e.nativeEvent.offsetY;` and guard against NaN (`if (!Number.isFinite(lx) || !Number.isFinite(ly)) return;`). Verify tapping on the mosaic sets both coords as finite numbers on web.",
+    "BACKEND: In /app/backend/photogram.py rectify_and_extract, validate that every point is a 2-tuple of finite numbers before doing arithmetic; raise ValueError('Punti non validi') so FastAPI returns 422 instead of 500. Also guard `_order_quad` similarly for rect.",
+    "OPTIONAL: Sanitize `points` in server.py pg_extract (drop non-finite or non-list-of-2 entries) before delegating to photogram, for defence in depth."
+  ],
+  "critical_code_review_comments": [
+    "photogram.py:116-186: overall structure is correct - two clear branches (rect / line), consistent output dict, proper HTTP status mapping via ValueError -> 422 for well-formed but semantically bad refs. Bug is only the missing input-type validation (assumes numbers, gets None from frontend on web).",
+    "server.py:682-711 pg_extract: reads body as untyped dict and delegates to photogram; no Pydantic model. Adding a PgExtractRequest model with `points: List[List[float]]` would let FastAPI auto-reject null coords with 422 without touching photogram.py.",
+    "photogram/[id].tsx:147-158: onImgPress is single-source-of-truth for point capture. Should ALSO guard against dispH==0 (before layout) to prevent divide-by-zero yielding NaN even when locationX/Y are present."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_photogram.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15 photogram pytest via public URL)",
+    "frontend": "50% - capture phase, stitch transition, LINEA selection, canvas render, points counter, length input all OK; but tap coordinates on canvas are NaN on web -> extract crashes backend with 500 -> no navigation to editor"
+  },
+  "seed_data_creation": "Two throwaway projects `TEST_photogram_iter11` and `TEST_photogram_empty` are created and deleted by the pytest fixtures. No permanent seed data added.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Rerun with `export $(grep -v '^#' /app/frontend/.env | xargs) && python -m pytest backend/tests/test_photogram.py -v -p no:xdist -o addopts=`. IMPORTANT: pytest.ini enables xdist by default which parallelises TestPhotos and TestExtract into separate workers with separate module fixtures - if you rely on the module-scoped `project_id` fixture, disable xdist with `-p no:xdist -o addopts=` or the extract tests will run against an empty project and 400 out. The frontend web bug: locationX/locationY undefined for Pressable on RN-Web. To retest after fix, replay the exact flow on /photogram/6a81744777f2fd398faa2c4b - the pre-seeded mosaic (~900x1999) and two shots make it deterministic. Backend 500 reproducer: curl POST /api/projects/6a81744777f2fd398faa2c4b/photogram/extract with `{\"type\":\"line\",\"points\":[[null,null],[null,null]],\"length_mm\":150}`.",
+  "rca_of_issue": "STEP 1 (frontend): User taps twice on <Pressable testID='pg-canvas'>. On RN-Web, e.nativeEvent.locationX/locationY are undefined for Pressable (only PanResponder/GestureHandler expose them reliably). onImgPress computes mx=NaN, my=NaN. STEP 2 (frontend): setPoints stores {x:NaN,y:NaN}, counter increments visually to 2/2, but Svg gets NaN in cx/cy/x1/y1 causing console errors (visible in test output). STEP 3 (frontend->backend): doExtract maps `points.map(p=>[p.x,p.y])` and calls JSON.stringify which encodes NaN as null. Backend receives [[null,null],[null,null]]. STEP 4 (backend): photogram.py:156 executes `float(np.hypot(x1 - x0, y1 - y0))` with x0=x1=None -> TypeError, uncaught -> starlette returns 500. MITIGATION: fix frontend to use offsetX/offsetY fallback + finite guard AND fix backend to validate points before arithmetic (return 422)."
+}

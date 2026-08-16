@@ -31,6 +31,18 @@ FastAPI condiviso; la Computer Vision gira sul backend.
 6. Export DXF in mm con layer distinti; progetti salvati, storico, riesportazione.
 
 ## Implemented (2026-08-15)
+- ✅ **Fotogrammetria multi-foto per pezzi PIATTI (senza bollini)** (`photogram.py`, schermata
+  `photogram/[id].tsx`, `capture_mode=photogram`): l'utente scatta 3–8 foto del pezzo da varie
+  angolazioni a ~1 m; le foto vengono unite in un unico mosaico (OpenCV Stitcher, fallback prima
+  foto), poi l'utente marca sul mosaico un riferimento di misura nota — RETTANGOLO (4 angoli +
+  larghezza×altezza → raddrizzamento prospettico completo) oppure LINEA (2 punti + lunghezza →
+  sola scala) — e il backend rettifica/scala e segmenta il contorno del pezzo (GrabCut su copia
+  ridotta ~600px per velocità, ~1.5s) restituendolo come `contour_mm` + immagine rettificata +
+  `mm_per_px`; il pezzo passa a `processed` e si apre l'editor per rifinire ed esportare in DXF.
+  Endpoints: `/projects/{id}/photogram/photos` (POST/GET/DELETE), `/photogram/stitch`,
+  `/photogram/extract`. Backend 15/15 test; flusso UI verificato end-to-end.
+- ✅ Fix: `server.py:_run_pipeline` fallback <4 bollini usava `geo.simplify_contour_mm`
+  (inesistente) → corretto in `cv.simplify_contour_mm` (crash 500 pre-esistente).
 - ✅ **Motore COLORE loghi (vtracer)** (`vectorize.py`, modalità `subject=colore`): traccia loghi/emblemi
   MULTICOLORE (es. BMW) segmentando le regioni di colore con `vtracer` (spline morbide) e restituisce
   un'anteprima A COLORI (SVG→PNG via cairosvg). Superiore alla soglia grigia su foto lucide. UI

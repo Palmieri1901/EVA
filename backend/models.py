@@ -72,8 +72,12 @@ class Project(BaseModel):
     cut_side: str = "inner"  # inner | outer
     blade_offset_mm: float = 0.0
     fillet_radius_mm: float = 0.0
-    capture_mode: str = "single"  # single | multi
+    capture_mode: str = "single"  # single | multi | photogram
     shots: List[dict] = Field(default_factory=list)
+    photogram_shots: List[dict] = Field(default_factory=list)
+    photogram_mosaic_path: Optional[str] = None
+    photogram_mosaic_w: int = 0
+    photogram_mosaic_h: int = 0
 
     # capture / processing
     photo_path: Optional[str] = None

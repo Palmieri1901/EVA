@@ -29,6 +29,7 @@ import techsheet
 import assembly
 import nesting
 import exporters
+import photogram
 import vectorize as vec
 from dxf_builder import build_dxf
 from models import (
@@ -352,7 +353,7 @@ def _run_pipeline(img_bytes: bytes, project: dict) -> dict:
         # fallback: rectangle from ref size, no rectified image
         w, h = project["ref_width_mm"], project["ref_height_mm"]
         contour = [[0.0, 0.0], [w, 0.0], [w, h], [0.0, h]]
-        contour = geo.simplify_contour_mm(contour)
+        contour = cv.simplify_contour_mm(contour)
         quality = Quality(
             markers_found=len(raw_markers), sharpness=sharp, tape_detected=False, valid=False,
             messages=messages,
@@ -578,6 +579,136 @@ async def stitch_project(project_id: str):
         "contour_points": len(result["contour_mm"]),
     }
 
+
+
+# --------------------------------------------------------------------------
+# Markerless photogrammetry capture for flat pieces (many angled photos)
+# --------------------------------------------------------------------------
+def _pg_with_urls(shots: list) -> list:
+    out = []
+    for s in shots or []:
+        s2 = dict(s)
+        s2["photo_url"] = file_url(s.get("photo_path"))
+        out.append(s2)
+    return out
+
+
+@api_router.post("/projects/{project_id}/photogram/photos")
+async def pg_add_photo(project_id: str, file: UploadFile = File(...)):
+    doc = await get_project_doc(project_id)
+    data = await file.read()
+    pid = uuid.uuid4().hex
+    path = f"{store.APP_NAME}/photogram/{project_id}/{pid}.jpg"
+    await run_in_threadpool(store.put_object, path, data, file.content_type or "image/jpeg")
+    shots = doc.get("photogram_shots") or []
+    shot = {"id": pid, "order": len(shots), "photo_path": path}
+    shots.append(shot)
+    await db.projects.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"photogram_shots": shots, "capture_mode": "photogram",
+                  "status": "captured", "updated_at": now_iso()}},
+    )
+    out = dict(shot)
+    out["photo_url"] = file_url(path)
+    return out
+
+
+@api_router.get("/projects/{project_id}/photogram/photos")
+async def pg_list_photos(project_id: str):
+    doc = await get_project_doc(project_id)
+    return _pg_with_urls(doc.get("photogram_shots"))
+
+
+@api_router.delete("/projects/{project_id}/photogram/photos/{photo_id}")
+async def pg_delete_photo(project_id: str, photo_id: str):
+    doc = await get_project_doc(project_id)
+    shots = [s for s in (doc.get("photogram_shots") or []) if s.get("id") != photo_id]
+    for i, s in enumerate(shots):
+        s["order"] = i
+    await db.projects.update_one({"_id": doc["_id"]}, {"$set": {"photogram_shots": shots, "updated_at": now_iso()}})
+    return {"ok": True, "count": len(shots)}
+
+
+def _run_pg_stitch(imgs_bytes: list) -> dict:
+    imgs = []
+    for b in imgs_bytes:
+        arr = np.frombuffer(b, np.uint8)
+        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if bgr is not None:
+            imgs.append(bgr)
+    mosaic, warning = photogram.stitch_photos(imgs)
+    if mosaic is None:
+        return {"error": warning}
+    ok, buf = cv2.imencode(".jpg", mosaic, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    return {"bytes": buf.tobytes() if ok else None,
+            "w": mosaic.shape[1], "h": mosaic.shape[0], "warning": warning}
+
+
+@api_router.post("/projects/{project_id}/photogram/stitch")
+async def pg_stitch(project_id: str):
+    doc = await get_project_doc(project_id)
+    shots = doc.get("photogram_shots") or []
+    if not shots:
+        raise HTTPException(status_code=400, detail="Aggiungi almeno una foto")
+    imgs_bytes = []
+    for s in shots:
+        try:
+            b, _ = await run_in_threadpool(store.get_object, s["photo_path"])
+            imgs_bytes.append(b)
+        except Exception:  # noqa: BLE001
+            continue
+    result = await run_in_threadpool(_run_pg_stitch, imgs_bytes)
+    if result.get("error"):
+        raise HTTPException(status_code=422, detail=result["error"])
+    mpath = f"{store.APP_NAME}/photogram/{project_id}/mosaic_{uuid.uuid4().hex}.jpg"
+    await run_in_threadpool(store.put_object, mpath, result["bytes"], "image/jpeg")
+    await db.projects.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"photogram_mosaic_path": mpath, "photogram_mosaic_w": result["w"],
+                  "photogram_mosaic_h": result["h"], "updated_at": now_iso()}},
+    )
+    return {"mosaic_url": file_url(mpath), "w": result["w"], "h": result["h"],
+            "warning": result.get("warning")}
+
+
+def _run_pg_extract(mosaic_bytes: bytes, reference: dict) -> dict:
+    arr = np.frombuffer(mosaic_bytes, np.uint8)
+    mosaic = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if mosaic is None:
+        raise ValueError("Mosaico non decodificabile")
+    return photogram.rectify_and_extract(mosaic, reference)
+
+
+@api_router.post("/projects/{project_id}/photogram/extract")
+async def pg_extract(project_id: str, body: dict):
+    doc = await get_project_doc(project_id)
+    mpath = doc.get("photogram_mosaic_path")
+    if not mpath:
+        raise HTTPException(status_code=400, detail="Prima unisci le foto")
+    mosaic_bytes, _ = await run_in_threadpool(store.get_object, mpath)
+    try:
+        res = await run_in_threadpool(_run_pg_extract, mosaic_bytes, body or {})
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    updates = {
+        "contour_mm": res["contour_mm"],
+        "mm_per_px": res["mm_per_px"],
+        "rectified_w_px": res["w_px"],
+        "rectified_h_px": res["h_px"],
+        "status": "processed",
+        "updated_at": now_iso(),
+    }
+    if res.get("rectified_bytes"):
+        rpath = f"{store.APP_NAME}/rectified/{project_id}/{uuid.uuid4().hex}.jpg"
+        await run_in_threadpool(store.put_object, rpath, res["rectified_bytes"], "image/jpeg")
+        updates["rectified_path"] = rpath
+    await db.projects.update_one({"_id": doc["_id"]}, {"$set": updates})
+    saved = await db.projects.find_one({"_id": doc["_id"]})
+    s = serialize(saved)
+    s["rectified_url"] = file_url(saved.get("rectified_path"))
+    s["detected"] = res.get("detected", False)
+    return s
 
 
 # --------------------------------------------------------------------------

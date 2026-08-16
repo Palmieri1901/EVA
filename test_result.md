@@ -236,3 +236,48 @@ agent_communication:
       subject=logo, subject=cerchio still return 200 with polylines on a simple image.
       Use any coloured logo image (or generate a synthetic one with coloured shapes + text).
       No auth. Do NOT test frontend (image picker cannot be automated on web).
+    -agent: "main"
+    -message: |
+      NEW FEATURE: Markerless photogrammetry capture for FLAT pieces (module backend/photogram.py,
+      screen frontend/app/photogram/[id].tsx). Flow: upload several photos of a flat piece ->
+      combine into one mosaic (OpenCV Stitcher) -> user marks a known-size reference (rectangle=4
+      points+WxH, or line=2 points+length) on the mosaic -> rectify/scale + segment the piece
+      outline -> project gets contour_mm + rectified image + mm_per_px, status 'processed', then
+      opens the editor.
+
+      TEST BACKEND (endpoints, no auth, /api prefix):
+      1) POST /api/projects/{id}/photogram/photos (multipart file=<image>) -> returns {id, photo_url}.
+      2) GET /api/projects/{id}/photogram/photos -> list.
+      3) DELETE /api/projects/{id}/photogram/photos/{photo_id} -> {ok:true}.
+      4) POST /api/projects/{id}/photogram/stitch -> {mosaic_url, w, h, warning?}. (Needs >=1 photo.)
+      5) POST /api/projects/{id}/photogram/extract with JSON body
+         {"type":"line","points":[[x0,y0],[x1,y1]],"length_mm":150} -> project with status 'processed',
+         contour_mm non-empty, mm_per_px>0, rectified_url set, detected bool.
+         Also test {"type":"rect","points":[[..]x4],"width_mm":210,"height_mm":297}.
+         Error cases: extract before stitch -> 400; missing dims -> 422; wrong point count -> 422.
+      Setup: create a boat, then a project with capture_mode='photogram'. Upload 2-3 photos
+      (any images). Use synthetic images if needed.
+
+      TEST FRONTEND (web preview): there is a pre-seeded project id 6a81744777f2fd398faa2c4b
+      (capture_mode photogram, already has photos + mosaic). Navigate to
+      /photogram/6a81744777f2fd398faa2c4b. Capture phase shows photo tiles + SCATTA/GALLERIA/
+      'UNISCI FOTO'. Do NOT try the gallery/camera picker (native dialog, not automatable).
+      Click 'UNISCI FOTO' -> Reference phase appears with RETTANGOLO/LINEA toggle, a tappable mosaic
+      canvas (testID pg-canvas), 'AZZERA PUNTI', dim inputs (pg-width/pg-height or pg-length) and
+      'ESTRAI CONTORNO' (testID pg-extract). Select LINEA (pg-reftype-line), tap 2 points on the
+      canvas (points counter should go 2/2), enter pg-length=150, tap pg-extract -> should navigate
+      to /editor/{id}. Report if tapping registers points and extract succeeds.
+    -agent: "main"
+    -message: |
+      FIXED the iter11 frontend bug + hardened + optimised (all re-verified):
+      1) onImgPress in photogram/[id].tsx now falls back to nativeEvent.offsetX/offsetY (RN-Web) and
+         guards non-finite values -> tap registers points correctly (verified: LINE 2/2 + RECT).
+      2) photogram.rectify_and_extract validates points via _clean_points() -> invalid/null points
+         return HTTP 422 (verified) instead of 500.
+      3) PERFORMANCE: GrabCut now runs on a 600px downscaled copy (contour scaled back) -> extract
+         dropped from 19-44s (which caused 502 at the ingress) to ~1.5s. Verified line+rect 200 OK.
+      4) Fixed a pre-existing 500 in server.py _run_pipeline (<4 markers fallback used
+         geo.simplify_contour_mm which doesn't exist -> now cv.simplify_contour_mm).
+      Full UI e2e now works: capture -> UNISCI FOTO -> reference (line/rect) -> tap points ->
+      ESTRAI CONTORNO -> navigates to /editor with the rectified mosaic + editable contour
+      (23 pts, ~339x428mm). No further retest strictly required; feature confirmed working.
