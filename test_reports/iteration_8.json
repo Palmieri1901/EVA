@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 8 (vectorize enhancements): validated 3 new capabilities plus regressions. Created /app/backend/tests/test_vectorize_internals_clean_center.py — 8/8 PASS in ~24s via public preview URL. (1) POST /api/vectorize subject=cerchio + internals=true on a centered outlined ring containing a filled internal square + small inner circle returns count>=2 (outer circle ~96 pts + at least one internal traced feature via adaptive threshold). (2) subject=cerchio + internals=false on the SAME image returns exactly count==1 with only the ~96-pt circle. (3) clean=true on a big filled square surrounded by tiny black speckles reduces count vs clean=false — verified clean=true gives count==1 (only the big square) while clean=false may keep specks; the clean pathway raises min_area_frac to max(3x, 0.0015) AND applies the post-processing filter that drops polys < 5% of the largest area (vectorize.py:265-266 and :321-325). (4) clean default (false) form field regression — still works, count>=1. (5) subject=cerchio on an image with TWO circles (a BIG ring near the bottom-right corner at (0.78,0.78) with radius fraction 0.30, and a SMALLER ring centered at (0.5,0.5) with radius fraction 0.15) correctly picks the CENTERED smaller circle. Verified by inspecting the returned preview PNG: traced-polyline pixel count in an annulus around the CENTER is >30 and strictly exceeds the count in an annulus around the CORNER (traced color BGR (0,90,200)). This exercises the new min-by-distance-to-center selection in vectorize.py:101 (_dominant_circle) and :125 (_circle_params). (6) REGRESSION subject=logo on a centered outlined ring still auto-circles (~96 pts, count==1). (7) REGRESSION subject=scritta on 'ABC' text returns count>=1. (8) REGRESSION blank white 400x400 returns HTTP 422. All calls via public URL (EXPO_PUBLIC_BACKEND_URL). No backend issues found. Frontend testing skipped per request.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_vectorize_internals_clean_center.py",
+    "/app/test_reports/pytest/iter8_enhancements.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "vectorize.py:101 (_dominant_circle) and :125 (_circle_params) both use `min(circles, key=lambda c: (c[0]-w/2)**2 + (c[1]-h/2)**2)` — this is the new centered-preference logic. Correctly implemented for the LOGO/OGGETTO auto-circle branch AND the CERCHIO branch. Verified working via the two-circles test.",
+    "vectorize.py:265-266 clean=true bumps min_area_frac to max(min_area_frac*3, 0.0015). This is applied BEFORE binarization/contour finding so it takes effect during the initial filter.",
+    "vectorize.py:321-325 also applies a post-processing 5%-of-largest filter when clean=true and there are multiple polys. Belt-and-braces: the initial min_area_frac hike alone might not catch all specks near the size threshold. Good design.",
+    "vectorize.py:129-159 (_circle_internals) uses adaptiveThreshold with a block size scaled to circle radius (r*0.5) and traces contours via RETR_CCOMP inside a slightly-inset mask (inner=0.94*r). Area filter is 0.4%..90% of the inner-circle area — permissive enough to catch small features but blocks near-solid fills.",
+    "server.py:777 `clean: bool = Form(False)` — FastAPI Form-bool default false is preserved; verified regression test that calling without `clean` in the multipart body still works.",
+    "server.py:789 passes `clean` as the last positional arg through to vectorize_image; keyword order matches vectorize.py:200-212 signature."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_vectorize_internals_clean_center.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 iter8 enhancements suite; prior 9/9 iter7 auto-circle and 10/10 iter6 roi+cerchio+threshold suites still expected to pass)",
+    "frontend": "N/A (skipped per request)"
+  },
+  "seed_data_creation": "None. Stateless synthetic-image tests; no Mongo writes.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Eight backend pytest suites now under /app/backend/tests/. To rerun the enhancements suite: `export $(grep -v '^#' /app/frontend/.env | xargs) && python -m pytest backend/tests/test_vectorize_internals_clean_center.py -v`. Helpful factories: _centered_ring_with_internals() (ring + filled internal square + small dot — internals=true traces >=2 polys), _big_square_with_speckles() (big filled rect + 6 tiny 2-px dots — clean noise-removal test), _two_circles_big_corner_small_center() (returns bytes plus expected pixel centers/radii for the preview-verification path). The two-circles test verifies center-preference by parsing the preview_url PNG (BGR trace color (0,90,200)) and counting traced pixels in an annulus around each candidate — this is the only reliable way since mm-scaled polylines from both candidates would both be aspect-1 circles at 200mm width. Note: `data` in the multipart POST must send bools lowercased ('true'/'false'); FastAPI Form(bool) parses those. The internals branch of vectorize.py:258-259 will crash-safe: if _circle_internals returns [], the endpoint still returns count==1 for the outer circle only.",
+  "rca_of_issue": "N/A — no bugs found. Three new features all behave as spec'd: cerchio+internals traces additional polylines inside the ring via adaptive thresholding; clean=true triple-guards against tiny specks (raised min_area_frac + morphological open + 5% post-filter); centered-circle preference uses `min(...key=distance_to_image_center)` in both Hough branches. The previous max-area heuristic that could pick a corner circle is now gone."
+}

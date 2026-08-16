@@ -46,6 +46,7 @@ export default function Vectorize() {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [subject, setSubject] = useState<"scritta" | "logo" | "oggetto" | "cerchio">("logo");
   const [internals, setInternals] = useState(false);
+  const [clean, setClean] = useState(false);
   const [invert, setInvert] = useState(true);
   const [widthMm, setWidthMm] = useState("200");
   const [autoThr, setAutoThr] = useState(true);
@@ -59,22 +60,55 @@ export default function Vectorize() {
   const [roiRect, setRoiRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const layoutRef = useRef({ w: 1, h: 1 });
+  const roiRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const modeRef = useRef<"new" | "move" | "resize">("new");
+  const originRef = useRef<any>(null);
+
+  const HANDLE = 30;
+  const setRoi = (r: any) => { roiRef.current = r; setRoiRect(r); };
 
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (e) => {
-        startRef.current = { x: e.nativeEvent.locationX, y: e.nativeEvent.locationY };
-        setRoiRect({ x: startRef.current.x, y: startRef.current.y, w: 0, h: 0 });
+        const px = e.nativeEvent.locationX;
+        const py = e.nativeEvent.locationY;
+        startRef.current = { x: px, y: py };
+        const r = roiRef.current;
+        if (r && px >= r.x - HANDLE && px <= r.x + r.w + HANDLE && py >= r.y - HANDLE && py <= r.y + r.h + HANDLE) {
+          // near bottom-right handle => resize, else inside => move
+          const nearBR = Math.abs(px - (r.x + r.w)) < HANDLE && Math.abs(py - (r.y + r.h)) < HANDLE;
+          if (nearBR) {
+            modeRef.current = "resize";
+          } else if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) {
+            modeRef.current = "move";
+            originRef.current = { rx: r.x, ry: r.y };
+          } else {
+            modeRef.current = "new";
+            setRoi({ x: px, y: py, w: 0, h: 0 });
+          }
+        } else {
+          modeRef.current = "new";
+          setRoi({ x: px, y: py, w: 0, h: 0 });
+        }
       },
-      onPanResponderMove: (e) => {
+      onPanResponderMove: (e, g) => {
         const s = startRef.current;
         if (!s) return;
         const { w: LW, h: LH } = layoutRef.current;
         const cx = Math.max(0, Math.min(LW, e.nativeEvent.locationX));
         const cy = Math.max(0, Math.min(LH, e.nativeEvent.locationY));
-        setRoiRect({ x: Math.min(s.x, cx), y: Math.min(s.y, cy), w: Math.abs(cx - s.x), h: Math.abs(cy - s.y) });
+        const r = roiRef.current;
+        if (modeRef.current === "move" && r && originRef.current) {
+          const nx = Math.max(0, Math.min(LW - r.w, originRef.current.rx + g.dx));
+          const ny = Math.max(0, Math.min(LH - r.h, originRef.current.ry + g.dy));
+          setRoi({ x: nx, y: ny, w: r.w, h: r.h });
+        } else if (modeRef.current === "resize" && r) {
+          setRoi({ x: r.x, y: r.y, w: Math.max(10, cx - r.x), h: Math.max(10, cy - r.y) });
+        } else {
+          setRoi({ x: Math.min(s.x, cx), y: Math.min(s.y, cy), w: Math.abs(cx - s.x), h: Math.abs(cy - s.y) });
+        }
       },
     })
   ).current;
@@ -107,7 +141,7 @@ export default function Vectorize() {
       const a = res.assets[0];
       setImageUri(a.uri);
       setResult(null);
-      setRoiRect(null);
+      setRoi(null);
       if (a.width && a.height) setAspect(a.height / a.width);
       else Image.getSize(a.uri, (w, h) => setAspect(h / w), () => setAspect(1));
     }
@@ -133,6 +167,7 @@ export default function Vectorize() {
         invert,
         subject,
         internals,
+        clean,
         roi,
         target_width_mm: parseFloat(widthMm) || 200,
         threshold: autoThr ? -1 : thr,
@@ -240,7 +275,9 @@ export default function Vectorize() {
                   <View
                     testID="roi-rect"
                     style={[styles.roi, { left: roiRect.x, top: roiRect.y, width: roiRect.w, height: roiRect.h }]}
-                  />
+                  >
+                    <View style={styles.roiHandle} />
+                  </View>
                 )}
               </View>
             </View>
@@ -255,10 +292,10 @@ export default function Vectorize() {
         {imageUri && !result && (
           <View style={styles.roiBar}>
             <Text style={styles.roiHint}>
-              {roiRect && roiRect.w > 8 ? "Area selezionata ✓" : "Trascina sull'immagine per selezionare l'area"}
+              {roiRect && roiRect.w > 8 ? "Area: trascina per spostare · angolo per ridimensionare" : "Trascina sull'immagine per selezionare l'area"}
             </Text>
             {roiRect ? (
-              <Pressable testID="roi-clear" onPress={() => setRoiRect(null)} hitSlop={8} style={styles.roiClear}>
+              <Pressable testID="roi-clear" onPress={() => setRoi(null)} hitSlop={8} style={styles.roiClear}>
                 <Feather name="x" size={14} color={colors.onSurface} />
                 <Text style={styles.roiClearText}>AREA</Text>
               </Pressable>
@@ -295,7 +332,7 @@ export default function Vectorize() {
         <Text style={styles.label}>Larghezza reale del logo (mm)</Text>
         <TextInput testID="vec-width" value={widthMm} onChangeText={setWidthMm} keyboardType="decimal-pad" style={styles.input} />
 
-        {subject !== "cerchio" && (
+        {subject !== "scritta" && (
           <View style={styles.toggleRow}>
             <Pressable testID="vec-internals" style={[styles.toggle, internals && styles.toggleOn]} onPress={() => { setInternals(!internals); setResult(null); }}>
               <Feather name={internals ? "check-square" : "square"} size={16} color={internals ? colors.onSurfaceInverse : colors.onSurface} />
@@ -303,6 +340,13 @@ export default function Vectorize() {
             </Pressable>
           </View>
         )}
+
+        <View style={styles.toggleRow}>
+          <Pressable testID="vec-clean" style={[styles.toggle, clean && styles.toggleOn]} onPress={() => { setClean(!clean); setResult(null); }}>
+            <Feather name={clean ? "check-square" : "square"} size={16} color={clean ? colors.onSurfaceInverse : colors.onSurface} />
+            <Text style={[styles.toggleText, clean && styles.toggleTextOn]}>Ripulisci rumore (togli piccoli contorni)</Text>
+          </Pressable>
+        </View>
 
         <View style={styles.toggleRow}>
           <Pressable testID="vec-invert" style={[styles.toggle, invert && styles.toggleOn]} onPress={() => setInvert(!invert)}>
@@ -416,6 +460,7 @@ const styles = StyleSheet.create({
   },
   previewEmpty: { alignItems: "center", gap: space.sm, padding: space.lg },
   roi: { position: "absolute", borderWidth: 2, borderColor: colors.brand, backgroundColor: "rgba(184,74,0,0.12)" },
+  roiHandle: { position: "absolute", right: -9, bottom: -9, width: 18, height: 18, backgroundColor: colors.brand, borderWidth: 2, borderColor: colors.surface },
   roiBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: space.sm, marginBottom: space.md },
   roiHint: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, flex: 1 },
   roiClear: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: BORDER, borderColor: colors.borderStrong, paddingHorizontal: space.sm, paddingVertical: 6 },

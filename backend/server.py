@@ -774,6 +774,7 @@ async def vectorize_photo(
     subject: str = Form("logo"),
     internals: bool = Form(False),
     roi: str = Form(""),
+    clean: bool = Form(False),
 ):
     data = await file.read()
     roi_obj = None
@@ -785,7 +786,7 @@ async def vectorize_photo(
             roi_obj = None
     try:
         res = await run_in_threadpool(
-            vec.vectorize_image, data, threshold, invert, target_width_mm, simplify, 0.0008, subject, internals, True, roi_obj
+            vec.vectorize_image, data, threshold, invert, target_width_mm, simplify, 0.0008, subject, internals, True, roi_obj, clean
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

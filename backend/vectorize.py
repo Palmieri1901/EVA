@@ -12,7 +12,11 @@ Coordinates keep image orientation (Y down), matching the editor canvas.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
+import subprocess
+import uuid
 from typing import List
 
 import cv2
@@ -76,6 +80,56 @@ def _crop_letterbox(img: np.ndarray) -> np.ndarray:
     return img[top:bot + 1, left:right + 1]
 
 
+def _potrace_polylines(binimg: np.ndarray) -> List[Poly]:
+    """Trace a binary image (foreground=255) into smooth polylines using potrace.
+    Returns polylines in top-down pixel coords, or [] if potrace is unavailable."""
+    import shutil
+    if shutil.which("potrace") is None:
+        return []
+    H = binimg.shape[0]
+    inv = 255 - binimg  # potrace treats black as foreground
+    tmp = f"/tmp/potrace_{uuid.uuid4().hex}.bmp"
+    try:
+        cv2.imwrite(tmp, inv)
+        out = subprocess.run(
+            ["potrace", "-b", "geojson", "-t", "8", "-a", "1.2", "-o", "-", tmp],
+            capture_output=True, timeout=25,
+        )
+        if out.returncode != 0 or not out.stdout:
+            return []
+        gj = json.loads(out.stdout.decode())
+    except Exception:  # noqa: BLE001
+        return []
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+    rings: List[Poly] = []
+
+    def add_polygon(poly):
+        for ring in poly:  # exterior + holes
+            pts = [[float(c[0]), float(H - c[1])] for c in ring]  # flip Y
+            if len(pts) >= 3:
+                rings.append(pts)
+
+    for feat in gj.get("features", []):
+        geom = feat.get("geometry", {})
+        t = geom.get("type")
+        coords = geom.get("coordinates", [])
+        if t == "Polygon":
+            add_polygon(coords)
+        elif t == "MultiPolygon":
+            for poly in coords:
+                add_polygon(poly)
+    return rings
+
+
+def _poly_area(poly: Poly) -> float:
+    return cv2.contourArea(np.array(poly, dtype=np.float32).reshape(-1, 1, 2))
+
+
 def _circle_poly(cx: float, cy: float, r: float, n: int = 96) -> Poly:
     poly = [[float(cx + r * np.cos(t)), float(cy + r * np.sin(t))]
             for t in np.linspace(0, 2 * np.pi, n, endpoint=False)]
@@ -98,7 +152,7 @@ def _dominant_circle(gray: np.ndarray, w: int, h: int):
     if circles is None:
         return None
     circles = np.round(circles[0, :]).astype(int)
-    cx, cy, r = max(circles, key=lambda c: c[2])
+    cx, cy, r = min(circles, key=lambda c: (c[0] - w / 2) ** 2 + (c[1] - h / 2) ** 2)
     if r < 0.28 * min(w, h):
         return None
     if abs(cx - w / 2) > w * 0.3 or abs(cy - h / 2) > h * 0.35:
@@ -106,11 +160,10 @@ def _dominant_circle(gray: np.ndarray, w: int, h: int):
     return (cx, cy, r)
 
 
-def _detect_circles(gray: np.ndarray, w: int, h: int) -> List[Poly]:
-    """Detect circular logos/emblems and return perfect circle polylines (px)."""
+def _circle_params(gray: np.ndarray, w: int, h: int):
+    """Return (cx,cy,r) of the main circle, or None."""
     circles = _hough(gray, w, h, p2=45)
     if circles is None:
-        # fallback: fit a circle to the largest foreground blob (filled discs)
         _, b = cv2.threshold(cv2.medianBlur(gray, 5), 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         border = np.concatenate([b[0, :], b[-1, :], b[:, 0], b[:, -1]])
         if border.mean() > 140:
@@ -118,12 +171,51 @@ def _detect_circles(gray: np.ndarray, w: int, h: int) -> List[Poly]:
         cnts, _ = cv2.findContours(b, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         cnts = [c for c in cnts if cv2.contourArea(c) > (w * h) * 0.01]
         if not cnts:
-            return []
+            return None
         (cx, cy), r = cv2.minEnclosingCircle(max(cnts, key=cv2.contourArea))
-    else:
-        circles = np.round(circles[0, :]).astype(int)
-        cx, cy, r = max(circles, key=lambda c: c[2])
-    return [_circle_poly(cx, cy, r)]
+        return (float(cx), float(cy), float(r))
+    circles = np.round(circles[0, :]).astype(int)
+    # prefer the circle closest to the image centre (the subject being aimed at)
+    cx, cy, r = min(circles, key=lambda c: (c[0] - w / 2) ** 2 + (c[1] - h / 2) ** 2)
+    return (float(cx), float(cy), float(r))
+
+
+def _circle_internals(gray: np.ndarray, cx: float, cy: float, r: float,
+                      simplify: float, smooth_it: int) -> List[Poly]:
+    """Trace internal features (cross lines, letters) inside a detected circle."""
+    H, W = gray.shape[:2]
+    mask = np.zeros((H, W), np.uint8)
+    inner = int(r * 0.94)
+    cv2.circle(mask, (int(cx), int(cy)), inner, 255, -1)
+    roi = cv2.bitwise_and(gray, gray, mask=mask)
+    # adaptive threshold copes with the emblem's mixed light/dark features
+    block = max(11, int(r * 0.5) | 1)
+    th = cv2.adaptiveThreshold(roi, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                               cv2.THRESH_BINARY_INV, block, 7)
+    th = cv2.bitwise_and(th, mask)
+    th = cv2.morphologyEx(th, cv2.MORPH_OPEN,
+                          cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)), iterations=1)
+    cnts, _ = cv2.findContours(th, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    area_full = np.pi * inner * inner
+    out: List[Poly] = []
+    for c in cnts:
+        a = cv2.contourArea(c)
+        if a < area_full * 0.004 or a > area_full * 0.9:
+            continue
+        peri = cv2.arcLength(c, True)
+        approx = cv2.approxPolyDP(c, max(simplify, 0.004) * peri, True)
+        pts = [[float(p[0][0]), float(p[0][1])] for p in approx]
+        if len(pts) >= 3:
+            pts.append(pts[0])
+            if smooth_it:
+                pts = _chaikin(pts, 1)
+            out.append(pts)
+    return out
+
+
+def _detect_circles(gray: np.ndarray, w: int, h: int) -> List[Poly]:
+    c = _circle_params(gray, w, h)
+    return [_circle_poly(*c)] if c else []
 
 
 def _grabcut_mask(img: np.ndarray) -> np.ndarray:
@@ -170,6 +262,7 @@ def vectorize_image(
     internals: bool = False,
     smooth: bool = True,
     roi: dict = None,          # {x,y,w,h} as fractions 0-1 of the image
+    clean: bool = False,       # drop small spurious contours (noise)
 ) -> dict:
     presets = {
         "scritta": {"min_area_frac": 0.0004, "simplify": 0.0025, "largest_only": False, "smooth_it": 1, "close_mul": 0.006, "close_it": 1},
@@ -212,14 +305,19 @@ def vectorize_image(
     gray = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8)).apply(gray)
 
     if subj == "cerchio":
-        polys_px = _detect_circles(gray, w, h)
-        if not polys_px:
+        c = _circle_params(gray, w, h)
+        if c is None:
             raise ValueError("Nessun cerchio rilevato: ritaglia meglio attorno al logo")
+        polys_px = [_circle_poly(*c)]
+        if internals:
+            polys_px += _circle_internals(gray, c[0], c[1], c[2], simplify, smooth_it)
     elif (subj in ("logo", "oggetto") and not internals and (threshold is None or threshold < 0)
           and (_auto_c := _dominant_circle(gray, w, h)) is not None):
         # round logo/emblem detected -> clean circular outline (avoids messy blobs)
         polys_px = [_circle_poly(*_auto_c)]
     else:
+        if clean:
+            min_area_frac = max(min_area_frac * 3.0, 0.0015)
         binimg = _binarize(img, gray, threshold, invert, subj, internals)
 
         # ensure background (image borders) is black; else flip
@@ -235,33 +333,51 @@ def vectorize_image(
         binimg = cv2.morphologyEx(binimg, cv2.MORPH_OPEN,
                                   cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ok, ok)), iterations=1)
 
-        retr = cv2.RETR_CCOMP if internals else cv2.RETR_EXTERNAL
-        contours, _ = cv2.findContours(binimg, retr, cv2.CHAIN_APPROX_SIMPLE)
         img_area = h * w
-        polys_px = []
-        fallback: List[Poly] = []  # kept if the frame-hugging filter removes everything
-        for c in contours:
-            area = cv2.contourArea(c)
-            if area < img_area * min_area_frac:
-                continue
-            peri = cv2.arcLength(c, True)
-            eps = max(simplify, 0.0008) * peri
-            approx = cv2.approxPolyDP(c, eps, True)
-            pts = [[float(p[0][0]), float(p[0][1])] for p in approx]
-            if len(pts) < 3:
-                continue
-            pts.append(pts[0])
-            if smooth_it:
-                pts = _chaikin(pts, smooth_it)
-            fallback.append(pts)
+        trace = _potrace_polylines(binimg) if smooth else []
+        if trace:
+            # smooth vector tracing (potrace) — cleaner curves than polygon approx
+            polys_px = []
+            fallback: List[Poly] = []
+            for pts in trace:
+                area = abs(_poly_area(pts))
+                if area < img_area * min_area_frac:
+                    continue
+                fallback.append(pts)
+                xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+                cw = max(xs) - min(xs); ch = max(ys) - min(ys)
+                if (cw > w * 0.985 and ch > h * 0.985) or area > img_area * 0.9:
+                    continue
+                polys_px.append(pts)
+            if not polys_px:
+                polys_px = fallback
+        else:
+            retr = cv2.RETR_CCOMP if internals else cv2.RETR_EXTERNAL
+            contours, _ = cv2.findContours(binimg, retr, cv2.CHAIN_APPROX_SIMPLE)
+            polys_px = []
+            fallback = []  # kept if the frame-hugging filter removes everything
+            for c in contours:
+                area = cv2.contourArea(c)
+                if area < img_area * min_area_frac:
+                    continue
+                peri = cv2.arcLength(c, True)
+                eps = max(simplify, 0.0008) * peri
+                approx = cv2.approxPolyDP(c, eps, True)
+                pts = [[float(p[0][0]), float(p[0][1])] for p in approx]
+                if len(pts) < 3:
+                    continue
+                pts.append(pts[0])
+                if smooth_it:
+                    pts = _chaikin(pts, smooth_it)
+                fallback.append(pts)
 
-            # background heuristics: whole-frame rectangle or blob touching 3+ borders
-            x, y, cw, ch = cv2.boundingRect(c)
-            full_frame = cw > w * 0.985 and ch > h * 0.985
-            touch = (x <= 2) + (y <= 2) + (x + cw >= w - 2) + (y + ch >= h - 2)
-            if full_frame or (touch >= 3 and area > img_area * 0.35):
-                continue
-            polys_px.append(pts)
+                # background heuristics: whole-frame rectangle or blob touching 3+ borders
+                x, y, cw, ch = cv2.boundingRect(c)
+                full_frame = cw > w * 0.985 and ch > h * 0.985
+                touch = (x <= 2) + (y <= 2) + (x + cw >= w - 2) + (y + ch >= h - 2)
+                if full_frame or (touch >= 3 and area > img_area * 0.35):
+                    continue
+                polys_px.append(pts)
 
         # never drop everything: on a very tight crop the subject fills the frame
         if not polys_px:
@@ -272,6 +388,13 @@ def vectorize_image(
         if largest_only and len(polys_px) > 1:
             polys_px = [max(polys_px, key=lambda poly: cv2.contourArea(
                 np.array(poly, dtype=np.float32).reshape(-1, 1, 2)))]
+
+    # noise cleanup: drop tiny contours relative to the biggest shape
+    if clean and len(polys_px) > 1:
+        def _pa(poly):
+            return cv2.contourArea(np.array(poly, dtype=np.float32).reshape(-1, 1, 2))
+        amax = max(_pa(p) for p in polys_px)
+        polys_px = [p for p in polys_px if _pa(p) >= amax * 0.05]
 
     xs = [p[0] for poly in polys_px for p in poly]
     ys = [p[1] for poly in polys_px for p in poly]
