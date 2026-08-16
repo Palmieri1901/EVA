@@ -31,6 +31,10 @@ FastAPI condiviso; la Computer Vision gira sul backend.
 6. Export DXF in mm con layer distinti; progetti salvati, storico, riesportazione.
 
 ## Implemented (2026-08-15)
+- ✅ **Motore COLORE loghi (vtracer)** (`vectorize.py`, modalità `subject=colore`): traccia loghi/emblemi
+  MULTICOLORE (es. BMW) segmentando le regioni di colore con `vtracer` (spline morbide) e restituisce
+  un'anteprima A COLORI (SVG→PNG via cairosvg). Superiore alla soglia grigia su foto lucide. UI
+  Vettorizza: pulsante COLORE (default), controlli soglia/inverti/dettagli nascosti in questa modalità.
 - ✅ Backend CV pipeline completa (Fase 1+2): marker (RETR_LIST, ellisse), homography da
   interasse noto, raddrizzamento, segmentazione HSV nastro (blu/bianco), contorno inner/outer,
   simplify. Validata con immagine sintetica (5 marker + nastro).

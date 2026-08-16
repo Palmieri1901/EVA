@@ -226,3 +226,13 @@ agent_communication:
       No auth. Backend at internal URL. For FRONTEND (web preview) test navigation only:
       home boat list, create boat modal, open boat detail, add-piece form fields.
       Camera capture cannot be tested on web; skip actual photo capture.
+    -agent: "main"
+    -message: |
+      NEW: Added COLOR logo tracing engine using vtracer (multi-colour region tracing) for
+      photos of coloured emblems (e.g. BMW). Please test BACKEND only:
+      POST /api/vectorize with form field subject=colore (also pass file=<any coloured logo image>,
+      target_width_mm=200, roi optional). Expect: HTTP 200, count>0, width_mm/height_mm present,
+      preview_url (a rendered COLOUR png), dxf_url. Also verify REGRESSION: subject=scritta,
+      subject=logo, subject=cerchio still return 200 with polylines on a simple image.
+      Use any coloured logo image (or generate a synthetic one with coloured shapes + text).
+      No auth. Do NOT test frontend (image picker cannot be automated on web).

@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import uuid
 from typing import List
@@ -233,6 +234,62 @@ def _grabcut_mask(img: np.ndarray) -> np.ndarray:
     return np.where((mask == 2) | (mask == 0), 0, 255).astype("uint8")
 
 
+def _vtracer_svg(img: np.ndarray, colormode: str = "color") -> str | None:
+    """Convert a BGR image to an SVG string using vtracer (color region tracing).
+    Returns the SVG markup or None if vtracer is unavailable/fails."""
+    try:
+        import vtracer  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return None
+    h, w = img.shape[:2]
+    speckle = max(4, int(min(h, w) * 0.02))
+    src = f"/tmp/vt_{uuid.uuid4().hex}.png"
+    dst = f"/tmp/vt_{uuid.uuid4().hex}.svg"
+    try:
+        cv2.imwrite(src, img)
+        vtracer.convert_image_to_svg_py(
+            src, dst,
+            colormode=colormode, hierarchical="stacked", mode="spline",
+            filter_speckle=speckle, color_precision=6, layer_difference=24,
+            corner_threshold=60, length_threshold=4.0, splice_threshold=45,
+            path_precision=3,
+        )
+        with open(dst, "r", encoding="utf-8") as fh:
+            return fh.read()
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        for f in (src, dst):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
+
+def _svg_to_polys_px(svg: str) -> List[Poly]:
+    """Sample every subpath of an SVG into pixel-space polylines (Y down)."""
+    from svgpathtools import parse_path  # noqa: PLC0415
+    d_attrs = re.findall(r'\sd\s*=\s*"([^"]+)"', svg)
+    polys: List[Poly] = []
+    for d in d_attrs:
+        try:
+            path = parse_path(d)
+        except Exception:  # noqa: BLE001
+            continue
+        for sub in path.continuous_subpaths():
+            if len(sub) == 0:
+                continue
+            length = sub.length() or 1.0
+            n = max(24, min(400, int(length / 2)))
+            pts = []
+            for i in range(n + 1):
+                pt = sub.point(i / n)
+                pts.append([float(pt.real), float(pt.imag)])
+            if len(pts) >= 3:
+                polys.append(pts)
+    return polys
+
+
 def _binarize(img: np.ndarray, gray: np.ndarray, threshold: int, invert: bool,
               subject: str, internals: bool) -> np.ndarray:
     # Detailed/silhouette logos on cluttered backgrounds: GrabCut removes the
@@ -268,6 +325,7 @@ def vectorize_image(
         "scritta": {"min_area_frac": 0.0004, "simplify": 0.0025, "largest_only": False, "smooth_it": 1, "close_mul": 0.006, "close_it": 1},
         "logo":    {"min_area_frac": 0.0008, "simplify": 0.0030, "largest_only": False, "smooth_it": 2, "close_mul": 0.008, "close_it": 2},
         "oggetto": {"min_area_frac": 0.0060, "simplify": 0.0035, "largest_only": False, "smooth_it": 2, "close_mul": 0.020, "close_it": 3},
+        "colore":  {"min_area_frac": 0.0010, "simplify": 0.0030, "largest_only": False, "smooth_it": 0, "close_mul": 0.008, "close_it": 2},
     }
     pr = presets.get((subject or "logo").lower(), presets["logo"])
     subj = (subject or "logo").lower()
@@ -304,7 +362,34 @@ def vectorize_image(
     gray = cv2.bilateralFilter(gray, 11, 75, 75)
     gray = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8)).apply(gray)
 
-    if subj == "cerchio":
+    color_preview = None
+    if subj == "colore":
+        # Multi-colour logo tracing (vtracer): segments distinct colour regions
+        # and returns their smooth boundaries — far better than a grey threshold.
+        svg = _vtracer_svg(img, "color")
+        if not svg:
+            raise ValueError("Motore colore non disponibile")
+        raw = _svg_to_polys_px(svg)
+        img_area = h * w
+        polys_px = []
+        for pts in raw:
+            area = abs(_poly_area(pts))
+            if area < img_area * min_area_frac:
+                continue
+            xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+            cw = max(xs) - min(xs); ch = max(ys) - min(ys)
+            if (cw > w * 0.985 and ch > h * 0.985) or area > img_area * 0.92:
+                continue  # skip the full-frame background region
+            polys_px.append(pts)
+        if not polys_px:
+            raise ValueError("Nessuna forma rilevata: ritaglia meglio attorno al logo")
+        try:
+            import cairosvg  # noqa: PLC0415
+            color_preview = cairosvg.svg2png(
+                bytestring=svg.encode("utf-8"), output_width=w, output_height=h)
+        except Exception:  # noqa: BLE001
+            color_preview = None
+    elif subj == "cerchio":
         c = _circle_params(gray, w, h)
         if c is None:
             raise ValueError("Nessun cerchio rilevato: ritaglia meglio attorno al logo")
@@ -411,12 +496,15 @@ def vectorize_image(
     height_mm = h_px * k_scale
 
     # preview PNG (traced outline on the original, dimmed)
-    prev = cv2.addWeighted(img, 0.45, np.full_like(img, 255), 0.55, 0)
-    for poly in polys_px:
-        cnt = np.array(poly, dtype=np.int32).reshape(-1, 1, 2)
-        cv2.polylines(prev, [cnt], True, (0, 90, 200), max(2, int(min(h, w) * 0.004)))
-    ok, buf = cv2.imencode(".png", prev)
-    preview = buf.tobytes() if ok else None
+    if color_preview is not None:
+        preview = color_preview
+    else:
+        prev = cv2.addWeighted(img, 0.45, np.full_like(img, 255), 0.55, 0)
+        for poly in polys_px:
+            cnt = np.array(poly, dtype=np.int32).reshape(-1, 1, 2)
+            cv2.polylines(prev, [cnt], True, (0, 90, 200), max(2, int(min(h, w) * 0.004)))
+        ok, buf = cv2.imencode(".png", prev)
+        preview = buf.tobytes() if ok else None
 
     return {
         "polylines": polys_mm,

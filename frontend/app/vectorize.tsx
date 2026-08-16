@@ -44,7 +44,7 @@ export default function Vectorize() {
   const { machine } = useMachine();
 
   const [imageUri, setImageUri] = useState<string | null>(null);
-  const [subject, setSubject] = useState<"scritta" | "logo" | "oggetto" | "cerchio">("logo");
+  const [subject, setSubject] = useState<"scritta" | "logo" | "oggetto" | "cerchio" | "colore">("colore");
   const [internals, setInternals] = useState(false);
   const [clean, setClean] = useState(false);
   const [invert, setInvert] = useState(true);
@@ -317,7 +317,7 @@ export default function Vectorize() {
 
         <Text style={styles.label}>Cosa rilevare</Text>
         <View style={styles.segRow}>
-          {([["scritta", "SCRITTA"], ["logo", "LOGO"], ["oggetto", "OGGETTO"], ["cerchio", "CERCHIO"]] as const).map(([v, l]) => (
+          {([["colore", "COLORE"], ["scritta", "SCRITTA"], ["logo", "LOGO"], ["oggetto", "OGGETTO"], ["cerchio", "CERCHIO"]] as const).map(([v, l]) => (
             <Pressable
               key={v}
               testID={`subject-${v}`}
@@ -329,10 +329,14 @@ export default function Vectorize() {
           ))}
         </View>
 
+        {subject === "colore" && (
+          <Text style={styles.hint}>Consigliato per loghi/emblemi a colori (es. BMW). Ritaglia la ROI stretta attorno al logo per il risultato migliore.</Text>
+        )}
+
         <Text style={styles.label}>Larghezza reale del logo (mm)</Text>
         <TextInput testID="vec-width" value={widthMm} onChangeText={setWidthMm} keyboardType="decimal-pad" style={styles.input} />
 
-        {subject !== "scritta" && (
+        {subject !== "scritta" && subject !== "colore" && (
           <View style={styles.toggleRow}>
             <Pressable testID="vec-internals" style={[styles.toggle, internals && styles.toggleOn]} onPress={() => { setInternals(!internals); setResult(null); }}>
               <Feather name={internals ? "check-square" : "square"} size={16} color={internals ? colors.onSurfaceInverse : colors.onSurface} />
@@ -348,6 +352,7 @@ export default function Vectorize() {
           </Pressable>
         </View>
 
+        {subject !== "colore" && (<>
         <View style={styles.toggleRow}>
           <Pressable testID="vec-invert" style={[styles.toggle, invert && styles.toggleOn]} onPress={() => setInvert(!invert)}>
             <Feather name={invert ? "check-square" : "square"} size={16} color={invert ? colors.onSurfaceInverse : colors.onSurface} />
@@ -374,6 +379,7 @@ export default function Vectorize() {
           maximumTrackTintColor={colors.border}
           thumbTintColor={colors.onSurface}
         />
+        </>)}
 
         <View style={{ height: space.md }} />
         <Btn testID="vec-analyze" label={result ? "RIANALIZZA" : "ANALIZZA"} loading={busy} icon={<Feather name="cpu" size={18} color={colors.onBrand} />} onPress={analyze} />
@@ -475,8 +481,9 @@ const styles = StyleSheet.create({
   },
   pickText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface },
   label: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginBottom: space.xs, textTransform: "uppercase" },
-  segRow: { flexDirection: "row", gap: space.sm, marginBottom: space.md },
-  segBtn: { flex: 1, alignItems: "center", borderWidth: BORDER, borderColor: colors.borderStrong, paddingVertical: 10, backgroundColor: colors.surface },
+  hint: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginBottom: space.md, lineHeight: 18 },
+  segRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.md },
+  segBtn: { flexGrow: 1, flexBasis: "30%", alignItems: "center", borderWidth: BORDER, borderColor: colors.borderStrong, paddingVertical: 10, backgroundColor: colors.surface },
   input: {
     borderWidth: BORDER, borderColor: colors.borderStrong, backgroundColor: colors.surface,
     paddingHorizontal: space.md, paddingVertical: 12, fontFamily: fonts.mono, fontSize: fontSize.base, color: colors.onSurface,
