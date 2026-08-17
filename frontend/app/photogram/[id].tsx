@@ -290,9 +290,10 @@ export default function Photogram() {
           <View style={styles.infoBox}>
             <Feather name="aperture" size={14} color={colors.brand} />
             <Text style={styles.infoText}>
-              Pezzi grandi o complessi: stampa il FOGLIO MARKER, appoggia alcuni marker sul piano
-              attorno al pezzo e scatta più foto sovrapposte (ogni foto deve condividere almeno 1
-              marker con un'altra). Poi premi UNISCI CON MARKER: ricostruisco tutto in scala reale.
+              Tappeti delimitati dal NASTRO: scatta UNA foto dall'alto in cui si vedano bene il
+              nastro e i 4 punti d'angolo di riferimento. Poi premi USA FOTO + RIFERIMENTO: tocchi
+              i 4 angoli, inserisci le misure reali e ricavo il contorno seguendo il nastro.
+              Solo per pezzi molto grandi: usa più foto con marker ArUco.
             </Text>
           </View>
 
@@ -337,6 +338,15 @@ export default function Photogram() {
             </Pressable>
           </View>
 
+          <Btn
+            testID="pg-stitch-btn"
+            label={photos.length > 1 ? `USA FOTO + RIFERIMENTO (${photos.length} foto)` : "USA FOTO + RIFERIMENTO"}
+            disabled={photos.length === 0}
+            loading={stitching}
+            icon={<MaterialCommunityIcons name="vector-square" size={20} color={colors.onBrand} />}
+            onPress={doStitch}
+          />
+
           <View style={styles.markerRow}>
             <View style={{ width: 130 }}>
               <Text style={styles.smallLabel}>LATO MARKER (mm)</Text>
@@ -348,19 +358,11 @@ export default function Photogram() {
             </Pressable>
           </View>
 
-          <Btn
-            testID="pg-aruco"
-            label={photos.length > 1 ? `UNISCI CON MARKER (${photos.length} foto)` : "UNISCI CON MARKER"}
-            disabled={photos.length === 0}
-            loading={arucoing}
-            icon={<MaterialCommunityIcons name="qrcode-scan" size={20} color={colors.onBrand} />}
-            onPress={doAruco}
-          />
-          <Pressable testID="pg-stitch" onPress={doStitch} disabled={photos.length === 0} style={{ alignItems: "center", paddingVertical: 6 }}>
-            {stitching ? (
+          <Pressable testID="pg-aruco" onPress={doAruco} disabled={photos.length === 0} style={{ alignItems: "center", paddingVertical: 6 }}>
+            {arucoing ? (
               <ActivityIndicator color={colors.onSurface} />
             ) : (
-              <Text style={styles.linkText}>Nessun marker? Usa un riferimento manuale →</Text>
+              <Text style={styles.linkText}>Pezzo molto grande con marker ArUco? Unisci con marker →</Text>
             )}
           </Pressable>
         </View>
@@ -384,8 +386,8 @@ export default function Photogram() {
           <Feather name="info" size={14} color={colors.brand} />
           <Text style={styles.infoText}>
             {refType === "rect"
-              ? "Tocca i 4 ANGOLI del riferimento rettangolare, poi TRASCINALI per posizionarli con precisione. Inserisci larghezza e altezza reali in mm: raddrizzo la prospettiva."
-              : "Tocca i 2 estremi di una distanza nota (es. tacche del righello), poi TRASCINALI per regolarli. Inserisci la lunghezza reale in mm."}
+              ? "Tocca i 4 PUNTI D'ANGOLO di riferimento (i puntini/angoli), poi TRASCINALI per posizionarli con precisione. Inserisci larghezza e altezza reali (interasse) in mm: raddrizzo la prospettiva e il contorno seguirà il NASTRO."
+              : "Tocca i 2 estremi di una distanza nota (es. tacche del righello), poi TRASCINALI per regolarli. Inserisci la lunghezza reale in mm. Il contorno seguirà il NASTRO."}
           </Text>
         </View>
 

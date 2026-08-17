@@ -198,7 +198,20 @@ test_plan:
 agent_communication:
     -agent: "main"
     -message: |
-      NEW ROUND — multi-format export + laser machine mode + photo vectorization.
+      NEW (2026-08-17): Tape-following contour in the FOTO+RIFERIMENTO (photogram) flow + teak
+      grooves centred in boat render. Root cause of user's "grey/empty box + wrong 900x700 square":
+      SCATTO SINGOLO marker pipeline didn't find the 4 black corner dots (it falsely detected the
+      photo's date-stamp digits), so it returned no rectified image (grey editor) + default rectangle.
+      Fix: photogram.rectify_and_extract now detects the coloured tape (cv.tape_mask + extract_contour,
+      inner/outer via cut_side) and returns the mat outline; GrabCut fallback. pg_extract passes
+      background_mode + cut_side from the project. Verified end-to-end on the user's real photo:
+      detected=True, 12 pts, ~919x657mm, rectified image visible in editor with contour on the blue
+      tape. boat_render teak stripes now symmetric about the piece centre.
+      NOT yet run through testing_agent this round (verified manually via curl + screenshots on the
+      user's real photo). Frontend photogram capture screen: primary button is now
+      testID pg-stitch-btn ("USA FOTO + RIFERIMENTO" -> doStitch -> reference phase), ArUco is a
+      secondary link testID pg-aruco.
+
       Please test BACKEND thoroughly:
       1) POST /api/projects/{id}/export/{fmt} for fmt in dxf,svg,pdf,png,gcode. Create a boat+piece,
          PATCH contour_mm rectangle and add an ENGRAVE element, then export each format. Also test

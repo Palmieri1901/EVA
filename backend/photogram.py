@@ -57,7 +57,7 @@ def prepare_image(images_bytes: List[bytes]) -> Tuple[Optional[np.ndarray], Opti
     """
     imgs = []
     for b in images_bytes:
-        im = cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_COLOR)
+        im = cv.imdecode_exif(b)
         if im is not None:
             imgs.append(_fit(im, MAX_DIM))
     if not imgs:
@@ -131,6 +131,36 @@ def _provisional_rect(w_mm: float, h_mm: float) -> List[List[float]]:
     return [[m, m], [w_mm - m, m], [w_mm - m, h_mm - m], [m, h_mm - m]]
 
 
+def _segment_tape(bgr: np.ndarray, background_mode: str = "blue_on_white",
+                  cut_side: str = "inner") -> Optional[np.ndarray]:
+    """Detect the coloured masking tape delimiting the mat and return the mat
+    outline (Nx2 px). Tries the configured colour first, then the alternative,
+    accepting whichever yields a sensible enclosed region. Returns None if no
+    usable tape band is found (caller falls back to GrabCut)."""
+    H, W = bgr.shape[:2]
+    area = float(H * W)
+    modes = [background_mode] + [m for m in ("blue_on_white", "white_on_dark") if m != background_mode]
+    best = None
+    best_frac = 0.0
+    for mode in modes:
+        mask = cv.tape_mask(bgr, mode)
+        frac = float(np.count_nonzero(mask)) / area
+        if frac < 0.01 or frac > 0.6:
+            continue
+        cnt = cv.extract_contour(mask, cut_side)
+        if cnt is None or len(cnt) < 4:
+            continue
+        a = cv2.contourArea(cnt.astype(np.float32)) / area
+        # the mat should occupy a meaningful, but not full-frame, portion
+        if a < 0.05 or a > 0.97:
+            continue
+        if a > best_frac:
+            best_frac = a
+            peri = cv2.arcLength(cnt.astype(np.float32), True)
+            best = cv2.approxPolyDP(cnt.astype(np.float32), 0.003 * peri, True).reshape(-1, 2).astype(np.float32)
+    return best
+
+
 # --------------------------------------------------------------------------
 # 3) Rectify + extract contour in mm
 # --------------------------------------------------------------------------
@@ -147,7 +177,9 @@ def _clean_points(pts, n: int) -> list:
     return out
 
 
-def rectify_and_extract(mosaic: np.ndarray, reference: dict) -> dict:
+def rectify_and_extract(mosaic: np.ndarray, reference: dict,
+                        background_mode: str = "blue_on_white",
+                        cut_side: str = "inner") -> dict:
     rtype = (reference or {}).get("type", "rect")
 
     if rtype == "rect":
@@ -194,7 +226,11 @@ def rectify_and_extract(mosaic: np.ndarray, reference: dict) -> dict:
         raise ValueError("Tipo di riferimento sconosciuto")
 
     h_r, w_r = rectified.shape[:2]
-    contour_px = _segment_piece(rectified)
+    # Primary: detect the coloured tape band and take the mat outline it delimits.
+    # Fallback: GrabCut foreground segmentation.
+    contour_px = _segment_tape(rectified, background_mode, cut_side)
+    if contour_px is None or len(contour_px) < 4:
+        contour_px = _segment_piece(rectified)
     if contour_px is not None and len(contour_px) >= 4:
         contour_mm = cv.px_to_mm(contour_px, mm_per_px)
         contour_mm = cv.simplify_contour_mm(contour_mm, tolerance_mm=1.0)

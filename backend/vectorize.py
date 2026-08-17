@@ -22,6 +22,7 @@ from typing import List
 
 import cv2
 import numpy as np
+import cv_pipeline as _cv
 
 log = logging.getLogger("vectorize")
 
@@ -335,7 +336,7 @@ def vectorize_image(
     smooth_it = pr["smooth_it"] if smooth else 0
 
     arr = np.frombuffer(image_bytes, dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    img = _cv.imdecode_exif(image_bytes)
     if img is None:
         raise ValueError("Immagine non valida")
 

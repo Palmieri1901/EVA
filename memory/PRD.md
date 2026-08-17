@@ -30,6 +30,26 @@ FastAPI condiviso; la Computer Vision gira sul backend.
    layer INCISIONE (ENGRAVE) / TAGLIO (CUT).
 6. Export DXF in mm con layer distinti; progetti salvati, storico, riesportazione.
 
+## Implemented (2026-08-17)
+- ✅ **Rilevamento NASTRO nel flusso FOTO+RIFERIMENTO** (`photogram._segment_tape`, `rectify_and_extract`):
+  dopo il raddrizzamento con i 4 angoli toccati (RETTANGOLO) o la linea, il contorno viene estratto
+  seguendo il NASTRO colorato (HSV blu/bianco, bordo interno/esterno da `cut_side`), con fallback a
+  GrabCut. Caso d'uso reale: tappeto delimitato da nastro azzurro + 4 punti neri d'angolo, foto singola
+  dall'alto (niente bollini). Verificato end-to-end sulla foto reale utente: foto raddrizzata VISIBILE
+  in editor + contorno che segue il nastro (~919×657mm). Endpoint `pg_extract` passa `background_mode`+`cut_side`.
+- ✅ **Foto sempre visibile in editor**: la causa del "riquadro grigio/vuoto" era che la pipeline
+  SCATTO SINGOLO non salvava l'immagine raddrizzata quando non trovava ≥4 bollini (nella foto utente
+  venivano rilevate per errore le cifre della data). Il flusso FOTO+RIFERIMENTO ora salva sempre la
+  raddrizzata e rileva il nastro.
+- ✅ **UX photogram**: "USA FOTO + RIFERIMENTO" è ora l'azione PRIMARIA (ArUco declassato a link
+  secondario per pezzi molto grandi). Istruzioni aggiornate per tappeti delimitati dal nastro + 4 punti
+  d'angolo. `new-project` info photogram aggiornata.
+- ✅ **Doghe teak dal centro** (`boat_render.render`): le doghe del rendering ora sono simmetriche
+  rispetto al centro del pezzo (doga centrale a k=0, le altre a specchio verso i bordi) invece di
+  partire da un lato (`np.arange` → range simmetrico).
+- ✅ **Decode EXIF-aware** (`cv_pipeline.imdecode_exif`) usato in tutte le decodifiche di foto caricate
+  (robustezza orientamento; OpenCV 5.0 lo gestisce già, questo è un fallback via Pillow).
+
 ## Implemented (2026-08-15)
 - ✅ **RENDERING BARCA (colori EVA per pezzo)** (`boat_render.py`, `render/[id].tsx`): schermata di
   composizione per barca: ogni pezzo appare a colori e si può **trascinare/ruotare** per comporre il

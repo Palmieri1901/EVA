@@ -19,6 +19,30 @@ MAX_RECTIFIED_PX = 2000  # cap output resolution
 MIN_MM_PER_PX = 0.25
 
 
+def imdecode_exif(data: bytes) -> Optional[np.ndarray]:
+    """Decode image bytes to a BGR ndarray, honouring the EXIF orientation tag.
+
+    cv2.imdecode ignores EXIF, so phone photos (which store the sensor image plus
+    an orientation flag) come out rotated/mirrored. We use Pillow to apply the
+    correct orientation first, then hand a properly-rotated array to OpenCV.
+    """
+    if not data:
+        return None
+    try:
+        from io import BytesIO
+
+        from PIL import Image, ImageOps
+
+        pil = Image.open(BytesIO(data))
+        pil = ImageOps.exif_transpose(pil)  # bake orientation into pixels
+        pil = pil.convert("RGB")
+        rgb = np.asarray(pil)
+        return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("imdecode_exif fell back to cv2.imdecode: %s", e)
+        return cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+
+
 # --------------------------------------------------------------------------
 # Marker detection
 # --------------------------------------------------------------------------

@@ -85,7 +85,10 @@ def render(pieces: List[dict], boat_name: str = "IMBARCAZIONE", fmt: str = "png"
         diag = np.hypot(tp[:, 0].max() - tp[:, 0].min(), tp[:, 1].max() - tp[:, 1].min())
         d = np.array([np.cos(rot), np.sin(rot)])      # stripe direction
         n = np.array([-np.sin(rot), np.cos(rot)])     # normal (offset direction)
-        for k in np.arange(-diag, diag, stripe):
+        # Symmetric around the piece centre: a central plank at k=0, the rest
+        # mirrored outward toward the edges.
+        m = int(diag / stripe) + 1
+        for k in (i * stripe for i in range(-m, m + 1)):
             base = c + n * k
             a = base - d * diag
             b = base + d * diag

@@ -352,8 +352,7 @@ async def upload_photo(project_id: str, file: UploadFile = File(...)):
 # CV processing
 # --------------------------------------------------------------------------
 def _run_pipeline(img_bytes: bytes, project: dict) -> dict:
-    arr = np.frombuffer(img_bytes, np.uint8)
-    bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    bgr = cv.imdecode_exif(img_bytes)
     if bgr is None:
         raise ValueError("Immagine non decodificabile")
 
@@ -469,8 +468,7 @@ async def process_project(project_id: str):
 # Multi-shot capture & stitching (large areas up to ~2x3 m)
 # --------------------------------------------------------------------------
 def _detect_shot_markers(img_bytes: bytes, bg: str) -> dict:
-    arr = np.frombuffer(img_bytes, np.uint8)
-    bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    bgr = cv.imdecode_exif(img_bytes)
     if bgr is None:
         raise ValueError("Immagine non decodificabile")
     markers = cv.detect_markers(bgr, bg)
@@ -537,8 +535,7 @@ def _run_stitch(project: dict, shot_imgs: list) -> dict:
     """shot_imgs: list of (shot_dict, img_bytes)."""
     shots = []
     for sd, img_bytes in shot_imgs:
-        arr = np.frombuffer(img_bytes, np.uint8)
-        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        bgr = cv.imdecode_exif(img_bytes)
         if bgr is None:
             continue
         shots.append({"id": sd["id"], "order": sd.get("order", 0), "bgr": bgr})
@@ -682,12 +679,12 @@ async def pg_stitch(project_id: str):
             "warning": result.get("warning")}
 
 
-def _run_pg_extract(mosaic_bytes: bytes, reference: dict) -> dict:
-    arr = np.frombuffer(mosaic_bytes, np.uint8)
-    mosaic = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+def _run_pg_extract(mosaic_bytes: bytes, reference: dict,
+                    background_mode: str = "blue_on_white", cut_side: str = "inner") -> dict:
+    mosaic = cv.imdecode_exif(mosaic_bytes)
     if mosaic is None:
         raise ValueError("Mosaico non decodificabile")
-    return photogram.rectify_and_extract(mosaic, reference)
+    return photogram.rectify_and_extract(mosaic, reference, background_mode, cut_side)
 
 
 @api_router.post("/projects/{project_id}/photogram/extract")
@@ -697,8 +694,10 @@ async def pg_extract(project_id: str, body: dict):
     if not mpath:
         raise HTTPException(status_code=400, detail="Prima unisci le foto")
     mosaic_bytes, _ = await run_in_threadpool(store.get_object, mpath)
+    bg = doc.get("background_mode") or "blue_on_white"
+    cut = doc.get("cut_side") or "inner"
     try:
-        res = await run_in_threadpool(_run_pg_extract, mosaic_bytes, body or {})
+        res = await run_in_threadpool(_run_pg_extract, mosaic_bytes, body or {}, bg, cut)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -725,7 +724,7 @@ async def pg_extract(project_id: str, body: dict):
 def _run_pg_aruco(imgs_bytes: list, marker_mm: float) -> dict:
     imgs = []
     for b in imgs_bytes:
-        im = cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_COLOR)
+        im = cv.imdecode_exif(b)
         if im is not None:
             imgs.append(im)
     return aruco_stitch.process(imgs, marker_mm)

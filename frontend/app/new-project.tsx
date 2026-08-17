@@ -111,9 +111,10 @@ export default function NewProject() {
           <View style={[styles.infoBox, { marginTop: space.md, marginBottom: 0 }]}>
             <Feather name="aperture" size={14} color={colors.brand} />
             <Text style={styles.infoText}>
-              Pezzi grandi o complessi senza bollini: stampi un foglio di marker ArUco, ne appoggi
-              alcuni sul piano attorno al pezzo e scatti più foto sovrapposte. Le unisco in scala reale
-              e ricavo il contorno. In alternativa, una foto singola con un riferimento (A4/righello).
+              Consigliato per tappeti delimitati dal NASTRO. Scatta una foto dall'alto del pezzo,
+              poi tocca i 4 punti d'angolo di riferimento (i puntini/angoli con interasse noto) e
+              inserisci le misure reali: raddrizzo la prospettiva e ricavo il contorno seguendo il
+              nastro. Per pezzi molto grandi puoi anche usare più foto con marker ArUco.
             </Text>
           </View>
         )}
