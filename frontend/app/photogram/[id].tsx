@@ -45,6 +45,8 @@ export default function Photogram() {
   const [widthMm, setWidthMm] = useState("");
   const [heightMm, setHeightMm] = useState("");
   const [lengthMm, setLengthMm] = useState("");
+  const [markerMm, setMarkerMm] = useState("40");
+  const [arucoing, setArucoing] = useState(false);
 
   const need = refType === "rect" ? 4 : 2;
 
@@ -141,6 +143,35 @@ export default function Photogram() {
     } finally {
       setStitching(false);
     }
+  };
+
+  const doAruco = async () => {
+    if (!id || photos.length === 0) return;
+    const mm = parseFloat(markerMm);
+    if (!mm || mm <= 0) {
+      toast("Inserisci il lato reale del marker (mm)", "error");
+      return;
+    }
+    setArucoing(true);
+    try {
+      const proj = await api.pgAruco(id, mm);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      toast(
+        `${proj.photos_used || 0} foto unite, ${proj.markers_found || 0} marker. ` +
+          (proj.detected ? "Contorno rilevato!" : "Contorno provvisorio: rifinisci nell'editor."),
+        proj.detected ? "success" : "info"
+      );
+      router.replace(`/editor/${id}` as any);
+    } catch (e: any) {
+      toast(e.message || "Elaborazione marker fallita", "error");
+    } finally {
+      setArucoing(false);
+    }
+  };
+
+  const downloadSheet = () => {
+    const mm = parseFloat(markerMm) || 40;
+    Linking.openURL(api.arucoSheetUrl(mm)).catch(() => toast("Impossibile aprire il PDF", "error"));
   };
 
   const dispH = mosaic && dispW ? (dispW * mosaic.h) / mosaic.w : 0;
@@ -259,9 +290,9 @@ export default function Photogram() {
           <View style={styles.infoBox}>
             <Feather name="aperture" size={14} color={colors.brand} />
             <Text style={styles.infoText}>
-              Scatta UNA foto del pezzo piatto dall'alto, il più possibile parallela al piano.
-              Nell'inquadratura metti anche un riferimento di misura nota (foglio A4 = 210×297 mm,
-              oppure un righello). Poi premi CONTINUA per indicare il riferimento.
+              Pezzi grandi o complessi: stampa il FOGLIO MARKER, appoggia alcuni marker sul piano
+              attorno al pezzo e scatta più foto sovrapposte (ogni foto deve condividere almeno 1
+              marker con un'altra). Poi premi UNISCI CON MARKER: ricostruisco tutto in scala reale.
             </Text>
           </View>
 
@@ -305,14 +336,33 @@ export default function Photogram() {
               <Text style={styles.addText}>GALLERIA</Text>
             </Pressable>
           </View>
+
+          <View style={styles.markerRow}>
+            <View style={{ width: 130 }}>
+              <Text style={styles.smallLabel}>LATO MARKER (mm)</Text>
+              <TextInput testID="pg-marker-mm" value={markerMm} onChangeText={setMarkerMm} keyboardType="decimal-pad" style={styles.inputSm} />
+            </View>
+            <Pressable testID="pg-sheet" style={styles.sheetBtn} onPress={downloadSheet}>
+              <Feather name="download" size={16} color={colors.onSurface} />
+              <Text style={styles.sheetText}>FOGLIO MARKER (PDF)</Text>
+            </Pressable>
+          </View>
+
           <Btn
-            testID="pg-stitch"
-            label={photos.length > 1 ? `CONTINUA (${photos.length} foto)` : "CONTINUA"}
+            testID="pg-aruco"
+            label={photos.length > 1 ? `UNISCI CON MARKER (${photos.length} foto)` : "UNISCI CON MARKER"}
             disabled={photos.length === 0}
-            loading={stitching}
-            icon={<Feather name="arrow-right" size={20} color={colors.onBrand} />}
-            onPress={doStitch}
+            loading={arucoing}
+            icon={<MaterialCommunityIcons name="qrcode-scan" size={20} color={colors.onBrand} />}
+            onPress={doAruco}
           />
+          <Pressable testID="pg-stitch" onPress={doStitch} disabled={photos.length === 0} style={{ alignItems: "center", paddingVertical: 6 }}>
+            {stitching ? (
+              <ActivityIndicator color={colors.onSurface} />
+            ) : (
+              <Text style={styles.linkText}>Nessun marker? Usa un riferimento manuale →</Text>
+            )}
+          </Pressable>
         </View>
       </View>
     );
@@ -483,6 +533,18 @@ const styles = StyleSheet.create({
     borderWidth: BORDER, borderColor: colors.borderStrong, paddingVertical: space.md, backgroundColor: colors.surface,
   },
   addText: { fontFamily: fonts.monoMed, fontSize: fontSize.base, color: colors.onSurface },
+  markerRow: { flexDirection: "row", gap: space.md, alignItems: "flex-end" },
+  smallLabel: { fontFamily: fonts.monoMed, fontSize: 10, color: colors.onSurfaceSecondary, marginBottom: 4, textTransform: "uppercase" },
+  inputSm: {
+    borderWidth: BORDER, borderColor: colors.borderStrong, paddingHorizontal: space.md, paddingVertical: 8,
+    fontFamily: fonts.mono, fontSize: fontSize.base, color: colors.onSurface, backgroundColor: colors.surface,
+  },
+  sheetBtn: {
+    flex: 1, flexDirection: "row", gap: space.sm, alignItems: "center", justifyContent: "center",
+    borderWidth: BORDER, borderColor: colors.borderStrong, paddingVertical: 10, backgroundColor: colors.surface,
+  },
+  sheetText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface },
+  linkText: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.brand, textDecorationLine: "underline" },
   segRow: { flexDirection: "row", gap: space.sm, marginBottom: space.md },
   segBtn: {
     flex: 1, alignItems: "center", borderWidth: BORDER, borderColor: colors.borderStrong,

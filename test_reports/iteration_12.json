@@ -1,0 +1,31 @@
+{
+  "summary": "Backend-only testing for ArUco multi-photo reconstruction (iter12). All 9 tests passed. Verified: (1) GET /api/aruco/sheet.pdf?mm=40 returns HTTP 200 with content-type application/pdf, valid %PDF header, ~30KB body; custom mm=60 also works. (2) POST /api/projects/6a82a5c817fe4d8f4b6783f0/photogram/aruco {marker_mm:50} returned 200, status='processed', photos_used>=1, markers_found>=1, contour_mm with >=3 pts, rectified_url downloadable. (3) POST /photogram/aruco on markerless photos returned HTTP 422 (not 500) with Italian detail message; backend GET /api/ remained 200 after the call. (4) POST /photogram/aruco on an empty project returned HTTP 400 with 'foto' in the italian detail. (5) REGRESSION /photogram/stitch returns {mosaic_url,w,h,warning} and backend stayed up. (6) REGRESSION /photogram/extract works for both type:'line' and type:'rect', persisting status='processed' with contour_mm.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_aruco.py",
+    "/app/test_reports/pytest/iter12_aruco.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "aruco_stitch.process correctly raises ValueError with Italian messages, and the /photogram/aruco endpoint maps ValueError -> HTTPException(422), preventing 500s.",
+    "OpenCV Stitcher removed from photogram.prepare_image (now picks sharpest photo). Signature returns (image, warning), consistent with /photogram/stitch response contract."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_aruco.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "N/A (skipped per request)"},
+  "seed_data_creation": "Test file uses pre-seeded project id 6a82a5c817fe4d8f4b6783f0 provided by main agent. Also creates and cleans up temporary TEST_* projects for the empty/markerless/stitch/extract regression cases.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run with: EXPO_PUBLIC_BACKEND_URL=<public-url> pytest /app/backend/tests/test_aruco.py -v. The dev backend has a periodic ~6-minute uvicorn reload that may briefly return 502/503 — the test file already has a small retry helper for that. Pre-seeded ArUco project 6a82a5c817fe4d8f4b6783f0 is required for TestArucoPreseeded; if it disappears, regenerate synthetic photos with cv2.aruco.generateImageMarker (DICT_4X4_50), pad a white quiet-zone border, and ensure two images share at least one marker id.",
+  "rca_of_issue": "N/A - no bugs found. All requested feature checks (sheet.pdf, aruco happy path, no-markers 422 with Italian text + backend alive, empty project 400, stitch and extract regressions) passed."
+}

@@ -111,9 +111,9 @@ export default function NewProject() {
           <View style={[styles.infoBox, { marginTop: space.md, marginBottom: 0 }]}>
             <Feather name="aperture" size={14} color={colors.brand} />
             <Text style={styles.infoText}>
-              Pezzo piatto senza bollini: scatta UNA foto dall'alto con nell'inquadratura un
-              riferimento di misura nota (foglio A4 o righello). Indichi il riferimento e ricavo il
-              contorno in scala. Il diametro bollino e l'interasse qui sotto non servono.
+              Pezzi grandi o complessi senza bollini: stampi un foglio di marker ArUco, ne appoggi
+              alcuni sul piano attorno al pezzo e scatti più foto sovrapposte. Le unisco in scala reale
+              e ricavo il contorno. In alternativa, una foto singola con un riferimento (A4/righello).
             </Text>
           </View>
         )}

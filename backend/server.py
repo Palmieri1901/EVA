@@ -30,6 +30,7 @@ import assembly
 import nesting
 import exporters
 import photogram
+import aruco_stitch
 import vectorize as vec
 from dxf_builder import build_dxf
 from models import (
@@ -703,6 +704,63 @@ async def pg_extract(project_id: str, body: dict):
     s["rectified_url"] = file_url(saved.get("rectified_path"))
     s["detected"] = res.get("detected", False)
     return s
+
+
+def _run_pg_aruco(imgs_bytes: list, marker_mm: float) -> dict:
+    imgs = []
+    for b in imgs_bytes:
+        im = cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_COLOR)
+        if im is not None:
+            imgs.append(im)
+    return aruco_stitch.process(imgs, marker_mm)
+
+
+@api_router.post("/projects/{project_id}/photogram/aruco")
+async def pg_aruco(project_id: str, body: dict):
+    doc = await get_project_doc(project_id)
+    shots = doc.get("photogram_shots") or []
+    if not shots:
+        raise HTTPException(status_code=400, detail="Aggiungi almeno una foto")
+    marker_mm = float((body or {}).get("marker_mm") or 0)
+    imgs_bytes = []
+    for s in shots:
+        try:
+            b, _ = await run_in_threadpool(store.get_object, s["photo_path"])
+            imgs_bytes.append(b)
+        except Exception:  # noqa: BLE001
+            continue
+    try:
+        res = await run_in_threadpool(_run_pg_aruco, imgs_bytes, marker_mm)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    updates = {
+        "contour_mm": res["contour_mm"],
+        "mm_per_px": res["mm_per_px"],
+        "rectified_w_px": res["w_px"],
+        "rectified_h_px": res["h_px"],
+        "status": "processed",
+        "updated_at": now_iso(),
+    }
+    if res.get("rectified_bytes"):
+        rpath = f"{store.APP_NAME}/rectified/{project_id}/{uuid.uuid4().hex}.jpg"
+        await run_in_threadpool(store.put_object, rpath, res["rectified_bytes"], "image/jpeg")
+        updates["rectified_path"] = rpath
+    await db.projects.update_one({"_id": doc["_id"]}, {"$set": updates})
+    saved = await db.projects.find_one({"_id": doc["_id"]})
+    s = serialize(saved)
+    s["rectified_url"] = file_url(saved.get("rectified_path"))
+    s["detected"] = res.get("detected", False)
+    s["photos_used"] = res.get("photos_used", 0)
+    s["markers_found"] = res.get("markers_found", 0)
+    return s
+
+
+@api_router.get("/aruco/sheet.pdf")
+async def aruco_sheet(mm: float = 40.0):
+    pdf = await run_in_threadpool(aruco_stitch.make_sheet_pdf, float(mm), 8)
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename="marker_aruco.pdf"'})
 
 
 # --------------------------------------------------------------------------

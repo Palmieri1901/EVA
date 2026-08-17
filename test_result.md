@@ -281,3 +281,28 @@ agent_communication:
       Full UI e2e now works: capture -> UNISCI FOTO -> reference (line/rect) -> tap points ->
       ESTRAI CONTORNO -> navigates to /editor with the rectified mosaic + editable contour
       (23 pts, ~339x428mm). No further retest strictly required; feature confirmed working.
+    -agent: "main"
+    -message: |
+      DIRECTION CHANGE + NEW ArUco FEATURE. The multi-photo OpenCV Stitcher was REMOVED (native
+      backend crashes). Now TWO ways to get a scaled outline for a flat piece:
+      (A) FOTO singola + riferimento manuale (rect/line): /photogram/stitch now just picks the
+          sharpest photo (crash-safe) + /photogram/extract. Reference points are DRAGGABLE in UI.
+      (B) NEW ArUco multi-photo (module aruco_stitch.py): user prints an ArUco sheet, places markers
+          on the plane around the piece, shoots several overlapping photos (each sharing >=1 marker);
+          backend builds a metric ortho-mosaic and extracts the contour.
+
+      TEST BACKEND ONLY (no auth, /api prefix):
+      1) GET /api/aruco/sheet.pdf?mm=40 -> 200, content-type application/pdf, non-empty.
+      2) POST /api/projects/{id}/photogram/aruco body {"marker_mm":50}
+         - photogram project whose photos contain ArUco DICT_4X4_50 markers (shared marker across
+           photos) -> 200, status 'processed', photos_used>=1, markers_found>=1, contour_mm non-empty,
+           rectified_url set.
+         - photos WITHOUT markers -> 422 Italian message (NOT 500); backend must stay UP.
+         - empty project (no photos) -> 400.
+      Pre-seeded working ArUco project id: 6a82a5c817fe4d8f4b6783f0 (2 synthetic photos w/ markers).
+      To build your own: boat -> project capture_mode='photogram' -> upload 2 images each containing
+      ArUco DICT_4X4_50 markers (cv2.aruco.generateImageMarker + white quiet-zone border; >=2 markers
+      per image, >=1 shared id across the two).
+      3) REGRESSION: /photogram/stitch returns {mosaic_url,w,h,warning?} (single/sharpest, never
+         crashes) and /photogram/extract still works (line & rect).
+      Do NOT test the frontend picker (native dialog); frontend already verified via screenshots.

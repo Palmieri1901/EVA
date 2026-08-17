@@ -177,6 +177,9 @@ export const api = {
     req(`/projects/${id}/photogram/stitch`, { method: "POST" }),
   pgExtract: (id: string, reference: any): Promise<ProjectT & { detected?: boolean }> =>
     req(`/projects/${id}/photogram/extract`, { method: "POST", body: JSON.stringify(reference) }),
+  pgAruco: (id: string, markerMm: number): Promise<ProjectT & { detected?: boolean; photos_used?: number; markers_found?: number }> =>
+    req(`/projects/${id}/photogram/aruco`, { method: "POST", body: JSON.stringify({ marker_mm: markerMm }) }),
+  arucoSheetUrl: (mm: number = 40) => `${API}/aruco/sheet.pdf?mm=${mm}`,
 
   async addPgPhoto(projectId: string, uri: string): Promise<PgPhotoT> {
     const form = new FormData();
