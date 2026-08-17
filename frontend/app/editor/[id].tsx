@@ -157,6 +157,7 @@ export default function Editor() {
   const [fillAuto, setFillAuto] = useState(false);
   const [fillGroove, setFillGroove] = useState("4");
   const [fillBoard, setFillBoard] = useState("0");
+  const [fillDiamondHeight, setFillDiamondHeight] = useState("60");
   const [fillStyle, setFillStyle] = useState<"semplice" | "bordato">("semplice");
   const [fillBorder, setFillBorder] = useState("40");
   const [fillClearMargin, setFillClearMargin] = useState("15");
@@ -477,6 +478,7 @@ export default function Editor() {
     border: number;
     groove: number;
     board: number;
+    diamondHeight?: number;
     layer: Layer;
     clearMargin?: number;
     setBusy?: (b: boolean) => void;
@@ -505,6 +507,7 @@ export default function Editor() {
         border_mm: opts.border || 30,
         groove_mm: opts.groove || 0,
         board_length_mm: opts.board || 0,
+        diamond_height_mm: opts.diamondHeight || 0,
         exclude,
         exclude_margin_mm: clear,
         layer: opts.layer,
@@ -539,6 +542,7 @@ export default function Editor() {
       border: parseFloat(fillBorder),
       groove: parseFloat(fillGroove),
       board: parseFloat(fillBoard),
+      diamondHeight: parseFloat(fillDiamondHeight) || 0,
       layer: fillLayer,
       clearMargin: parseFloat(fillClearMargin) || 0,
       setBusy: setFillBusy,
@@ -558,7 +562,7 @@ export default function Editor() {
     if (name === "doghe") {
       runFill({ pattern: "lines", spacing: 60, angle: 0, auto: true, style: "bordato", border: 40, groove: 5, board: 400, layer: "ENGRAVE", clearMargin });
     } else if (name === "diamante") {
-      runFill({ pattern: "diamond", spacing: 40, angle: 45, auto: false, style: "semplice", border: 30, groove: 4, board: 0, layer: "ENGRAVE", clearMargin });
+      runFill({ pattern: "diamond", spacing: 60, angle: 0, auto: false, style: "semplice", border: 30, groove: 4, board: 0, diamondHeight: 60, layer: "ENGRAVE", clearMargin });
     } else {
       runFill({ pattern: "cross", spacing: 40, angle: 0, auto: false, style: "semplice", border: 30, groove: 4, board: 0, layer: "ENGRAVE", clearMargin });
     }
@@ -904,13 +908,22 @@ export default function Editor() {
               </View>
 
               <ModalField
-                label={fillPattern === "lines" ? "Larghezza doga (mm)" : "Passo (mm)"}
+                label={fillPattern === "lines" ? "Larghezza doga (mm)" : fillPattern === "diamond" ? "Larghezza diamante (mm)" : "Passo (mm)"}
                 testID="fill-spacing"
                 value={fillSpacing}
                 onChangeText={setFillSpacing}
                 keyboardType="decimal-pad"
               />
 
+              {fillPattern === "diamond" && (
+                <ModalField
+                  label="Altezza diamante (mm)"
+                  testID="fill-diamond-height"
+                  value={fillDiamondHeight}
+                  onChangeText={setFillDiamondHeight}
+                  keyboardType="decimal-pad"
+                />
+              )}
               <Text style={styles.modalLabel}>Orientamento doghe</Text>
               <View style={styles.typeGrid}>
                 <Pressable

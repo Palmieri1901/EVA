@@ -30,6 +30,17 @@ FastAPI condiviso; la Computer Vision gira sul backend.
    layer INCISIONE (ENGRAVE) / TAGLIO (CUT).
 6. Export DXF in mm con layer distinti; progetti salvati, storico, riesportazione.
 
+## Fix + Feature (2026-08-17e) — Diamante restituiva righe + Altezza diamante
+- BUG: il pattern "diamond" usava `_hatch(angle)` + `_hatch(-angle)`; con angolo 0 (default del
+  modale RIEMPI) le due famiglie coincidevano → uscivano RIGHE invece di diamanti. Il preset
+  funzionava solo perché forzava 45°.
+- FIX (`geometry_ops.fill_pattern`): il diamante ora genera due famiglie a `angle ± atan2(H, W)` con
+  spacing perpendicolare `(W*H)/hypot(W,H)` → diamanti reali di larghezza W e altezza H, per qualsiasi
+  orientamento (mai collassano). Nuovo parametro `diamond_height_mm`.
+- FEATURE: campo "ALTEZZA DIAMANTE (mm)" nel modale RIEMPI (mostrato solo per DIAMANTE) + tipo in
+  `FillRequest`. Preset DIAMANTE aggiornato (W60 H60, angolo 0). Verificato: W20×H60 → diamanti alti e
+  stretti; W60×H120 dirs ~63/117; W60×H30 dirs ~27/153. Nessun crash.
+
 ## Fix (2026-08-17d) — crash "Uncaught Error" su RIEMPI AREA con scritta/logo
 - Causa: errore di RENDER nel frontend (react-native-svg) quando un `<Polyline>`/`<Polygon>`
   riceveva punti non finiti/malformati (possibile logo SVG o geometria degenere). Il client API

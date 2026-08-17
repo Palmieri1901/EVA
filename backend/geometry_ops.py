@@ -386,7 +386,8 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
                  pattern: str = "diamond", style: str = "semplice",
                  border_mm: float = 30.0, groove_mm: float = 0.0,
                  auto_angle: bool = False, board_length_mm: float = 0.0,
-                 exclude: List[Poly] = None, exclude_margin_mm: float = 0.0) -> dict:
+                 exclude: List[Poly] = None, exclude_margin_mm: float = 0.0,
+                 diamond_height_mm: float = 0.0) -> dict:
     poly = _ring(contour)
     if not poly.is_valid or poly.is_empty:
         poly = poly.buffer(0)
@@ -426,8 +427,18 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
 
     lines: List[Poly] = []
     if pattern == "diamond":
-        lines += _hatch(field, spacing, angle_deg)
-        lines += _hatch(field, spacing, -angle_deg)
+        # Diamond (rhombus) grid of width W and height H. The two edge families run
+        # at +/- theta from the orientation angle, where theta = atan2(H, W); their
+        # perpendicular spacing (W*H)/hypot(W,H) makes the diamonds tile exactly.
+        # Using +/-theta (never 0) fixes the old bug where angle 0 collapsed the two
+        # families into plain parallel lines.
+        w_cell = spacing
+        h_cell = diamond_height_mm if diamond_height_mm and diamond_height_mm > 0 else spacing
+        theta = math.degrees(math.atan2(h_cell, w_cell))
+        perp = (w_cell * h_cell) / math.hypot(w_cell, h_cell)
+        perp = max(perp, 2.0)
+        lines += _hatch(field, perp, angle_deg + theta)
+        lines += _hatch(field, perp, angle_deg - theta)
     elif pattern == "cross":
         lines += _hatch(field, spacing, angle_deg)
         lines += _hatch(field, spacing, angle_deg + 90)

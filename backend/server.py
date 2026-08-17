@@ -851,7 +851,7 @@ async def geometry_fill(req: FillRequest):
         res = await run_in_threadpool(
             geo.fill_pattern, req.contour, req.spacing_mm, req.angle_deg, req.pattern,
             req.style, req.border_mm, req.groove_mm, req.auto_angle, req.board_length_mm,
-            req.exclude, req.exclude_margin_mm,
+            req.exclude, req.exclude_margin_mm, req.diamond_height_mm,
         )
     except Exception as e:  # noqa: BLE001
         logger.exception("fill_pattern failed (exclude=%d, margin=%s, style=%s, groove=%s)",
