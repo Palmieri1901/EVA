@@ -365,21 +365,53 @@ def _run_pipeline(img_bytes: bytes, project: dict) -> dict:
     sharp = cv.sharpness(bgr)
 
     if len(corners) < 4:
-        messages.append("Meno di 4 bollini rilevati: usa la correzione manuale.")
-        # fallback: rectangle from ref size, no rectified image
+        # No corner dots/markers found -> AUTO tape mode: detect the coloured tape,
+        # take its 4 outer corners as the reference rectangle (known interasse) and
+        # extract the mat outline it delimits. Always keep the photo visible.
         w, h = project["ref_width_mm"], project["ref_height_mm"]
-        contour = [[0.0, 0.0], [w, 0.0], [w, h], [0.0, h]]
-        contour = cv.simplify_contour_mm(contour)
+        tape_pref = (project.get("tape_color") or project.get("background_mode") or "auto")
+        color = tape_pref if tape_pref not in ("auto", "", None) and cv._tape_score(bgr, tape_pref) > 0 else cv.best_tape_color(bgr)
+        quad = cv.detect_tape_quad(bgr, color) if color else None
+        if quad is not None:
+            ref = {"type": "rect", "points": quad.tolist(), "width_mm": w, "height_mm": h}
+            try:
+                res = photogram.rectify_and_extract(bgr, ref, color, project["cut_side"])
+            except Exception as e:  # noqa: BLE001
+                res = None
+                logger.warning("auto-tape rectify failed: %s", e)
+            if res is not None:
+                messages.append(
+                    f"Nastro '{color}' rilevato automaticamente: contorno sul nastro. "
+                    "Per la massima precisione usa FOTO + RIFERIMENTO toccando i 4 angoli."
+                )
+                quality = Quality(
+                    markers_found=0, sharpness=sharp, tape_detected=res.get("detected", False),
+                    valid=bool(res.get("detected")), messages=messages,
+                )
+                return {
+                    "markers": [],
+                    "quality": quality.model_dump(),
+                    "contour_mm": res["contour_mm"],
+                    "rectified": {"bytes": res.get("rectified_bytes"), "w": res["w_px"],
+                                  "h": res["h_px"], "mm_per_px": res["mm_per_px"]},
+                }
+        # No tape either -> keep the ORIGINAL photo visible + provisional rectangle so
+        # the user can trace over it manually (never a blank grey canvas).
+        messages.append("Nessun bollino né nastro rilevato: foto mostrata, correggi il contorno a mano.")
+        long_edge = max(w, h)
+        mm_per_px = max(long_edge / cv.MAX_RECTIFIED_PX, cv.MIN_MM_PER_PX)
+        ih, iw = bgr.shape[:2]
+        contour = [[0.0, 0.0], [iw * mm_per_px, 0.0], [iw * mm_per_px, ih * mm_per_px], [0.0, ih * mm_per_px]]
+        ok, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 88])
         quality = Quality(
             markers_found=len(raw_markers), sharpness=sharp, tape_detected=False, valid=False,
             messages=messages,
         )
         return {
-            "markers": [MarkerInfo(x_px=m["x"], y_px=m["y"], diameter_px=m["d"],
-                                   circularity=m["circ"]).model_dump() for m in raw_markers],
+            "markers": [],
             "quality": quality.model_dump(),
             "contour_mm": contour,
-            "rectified": None,
+            "rectified": {"bytes": buf.tobytes() if ok else None, "w": iw, "h": ih, "mm_per_px": mm_per_px},
         }
 
     for c in corners:
@@ -694,7 +726,7 @@ async def pg_extract(project_id: str, body: dict):
     if not mpath:
         raise HTTPException(status_code=400, detail="Prima unisci le foto")
     mosaic_bytes, _ = await run_in_threadpool(store.get_object, mpath)
-    bg = doc.get("background_mode") or "blue_on_white"
+    bg = doc.get("tape_color") or doc.get("background_mode") or "auto"
     cut = doc.get("cut_side") or "inner"
     try:
         res = await run_in_threadpool(_run_pg_extract, mosaic_bytes, body or {}, bg, cut)

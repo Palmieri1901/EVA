@@ -24,6 +24,7 @@ async function req(path: string, options: RequestInit = {}) {
 }
 
 export type BackgroundMode = "blue_on_white" | "white_on_dark";
+export type TapeColor = "auto" | "blu" | "giallo" | "verde" | "rosso" | "bianco";
 export type CutSide = "inner" | "outer";
 export type Layer = "CUT" | "ENGRAVE";
 export type CaptureMode = "single" | "multi" | "photogram";
@@ -79,6 +80,7 @@ export interface ProjectT {
   created_at: string;
   updated_at: string;
   background_mode: BackgroundMode;
+  tape_color?: TapeColor;
   marker_diameter_mm: number;
   ref_width_mm: number;
   ref_height_mm: number;

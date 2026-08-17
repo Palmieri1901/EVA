@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
 import { Feather } from "@expo/vector-icons";
 
-import { api, BackgroundMode, CaptureMode, CutSide } from "@/src/api";
+import { api, BackgroundMode, CaptureMode, CutSide, TapeColor } from "@/src/api";
 import { Btn, Field, Segmented } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { BORDER, colors, fonts, fontSize, space } from "@/src/theme";
@@ -18,6 +18,7 @@ export default function NewProject() {
 
   const [name, setName] = useState(n ? `Pezzo ${n}` : "Pezzo 1");
   const [bg, setBg] = useState<BackgroundMode>("blue_on_white");
+  const [tapeColor, setTapeColor] = useState<TapeColor>("auto");
   const [diameter, setDiameter] = useState("20");
   const [refW, setRefW] = useState("900");
   const [refH, setRefH] = useState("700");
@@ -52,6 +53,7 @@ export default function NewProject() {
         cut_side: cutSide,
         blade_offset_mm: parseFloat(offset) || 0,
         capture_mode: captureMode,
+        tape_color: tapeColor,
       });
       const dest =
         captureMode === "multi" ? `/shots/${proj.id}`
@@ -130,7 +132,36 @@ export default function NewProject() {
             { label: "BIANCO SU SCURO", value: "white_on_dark" },
           ]}
         />
-        <View style={{ height: space.xl }} />
+        <View style={{ height: space.lg }} />
+
+        <Text style={styles.sectionLabel}>Colore nastro</Text>
+        <View style={styles.chipsWrap}>
+          {([
+            ["auto", "AUTO"],
+            ["blu", "AZZURRO"],
+            ["giallo", "GIALLO"],
+            ["verde", "VERDE"],
+            ["rosso", "ROSSO"],
+            ["bianco", "BIANCO"],
+          ] as const).map(([v, l]) => (
+            <Pressable
+              key={v}
+              testID={`tape-${v}`}
+              onPress={() => setTapeColor(v)}
+              style={[styles.chip, tapeColor === v && styles.chipOn]}
+            >
+              <Text style={[styles.chipText, tapeColor === v && styles.chipTextOn]}>{l}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <View style={styles.infoBox}>
+          <Feather name="droplet" size={14} color={colors.brand} />
+          <Text style={styles.infoText}>
+            AUTO rileva da solo il colore del nastro che delimita il tappeto. Scegli un colore
+            specifico se la foto ha altri oggetti dello stesso colore che confondono il rilevamento.
+          </Text>
+        </View>
+        <View style={{ height: space.md }} />
 
         <Field
           label="Diametro bollini"
@@ -231,6 +262,14 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   row: { flexDirection: "row" },
+  chipsWrap: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  chip: {
+    borderWidth: BORDER, borderColor: colors.borderStrong, backgroundColor: colors.surface,
+    paddingHorizontal: space.md, paddingVertical: 8,
+  },
+  chipOn: { backgroundColor: colors.surfaceInverse },
+  chipText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface, letterSpacing: 0.5 },
+  chipTextOn: { color: colors.onSurfaceInverse },
   infoBox: {
     flexDirection: "row",
     gap: space.sm,

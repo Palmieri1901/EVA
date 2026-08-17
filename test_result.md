@@ -198,6 +198,36 @@ test_plan:
 agent_communication:
     -agent: "main"
     -message: |
+      NEW (2026-08-17b): Two features added.
+      (1) MULTI-COLOUR TAPE: cv_pipeline.tape_mask now supports blu/giallo/verde/rosso/bianco +
+          best_tape_color()/detect_tape_quad(). Project has new field tape_color (default "auto").
+          new-project.tsx has a "Colore nastro" chip selector (testIDs tape-auto/tape-blu/tape-giallo/
+          tape-verde/tape-rosso/tape-bianco). photogram extract uses tape_color (auto resolves best).
+      (2) SCATTO SINGOLO AUTO: _run_pipeline, when <4 bollini are found, now auto-detects the tape
+          (colour auto or the project's tape_color), takes its 4 outer corners as the reference
+          rectangle (known interasse ref_width/height), rectifies and extracts the mat outline the
+          tape delimits. Always saves the rectified photo (never a blank grey canvas); if no tape
+          either, it still shows the original photo + a provisional full-frame rectangle to trace.
+      Verified manually: real user photo via POST /projects/{id}/process -> status processed,
+      rectified_url set, 10 pts, ~916x655mm, message "Nastro 'blu' rilevato automaticamente".
+      Synthetic tapes giallo/verde/rosso/blu all auto-detected (quad OK, tape_detected True).
+      Photogram RECT on the real photo: detected True, 12 pts, ~919x657mm, rectified visible.
+      PLEASE TEST BACKEND ONLY (no auth, /api prefix):
+        a) Create boat + project (capture_mode single, tape_color auto, ref_width_mm 900,
+           ref_height_mm 700, cut_side inner). POST /projects/{id}/photo (multipart file=<image of a
+           mat bordered by a coloured tape rectangle on a light background>). POST /projects/{id}/process
+           -> expect status processed, rectified_url set, contour_mm non-empty (>4 pts following the
+           tape), quality.messages mentions auto tape. Try tape_color blu/giallo/verde/rosso too.
+        b) REGRESSION single with 4+ circular black corner dots + blue tape (synthetic like
+           /tmp/test_pipeline.py): should still rectify via markers and detect the tape (unchanged path).
+        c) photogram flow: POST photos, POST /photogram/stitch, POST /photogram/extract
+           {"type":"rect","points":[4 corners],"width_mm":900,"height_mm":700} -> detected True,
+           rectified_url set; also {"type":"line",...} still works.
+        d) No-tape image (plain photo, no coloured border, no markers): /process must still return a
+           rectified image (original photo) + provisional rectangle, NOT a 500 and NOT rectified null.
+      Do NOT test frontend camera/picker (native). Frontend already screenshot-verified.
+    -agent: "main"
+    -message: |
       NEW (2026-08-17): Tape-following contour in the FOTO+RIFERIMENTO (photogram) flow + teak
       grooves centred in boat render. Root cause of user's "grey/empty box + wrong 900x700 square":
       SCATTO SINGOLO marker pipeline didn't find the 4 black corner dots (it falsely detected the

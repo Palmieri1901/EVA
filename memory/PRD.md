@@ -30,6 +30,17 @@ FastAPI condiviso; la Computer Vision gira sul backend.
    layer INCISIONE (ENGRAVE) / TAGLIO (CUT).
 6. Export DXF in mm con layer distinti; progetti salvati, storico, riesportazione.
 
+## Implemented (2026-08-17b)
+- ✅ **Nastro multi-colore + AUTO** (`cv_pipeline.tape_mask`/`best_tape_color`/`detect_tape_quad`):
+  rilevamento nastro per blu/azzurro, giallo, verde, rosso, bianco. Nuovo campo `Project.tape_color`
+  (default "auto"). Selettore "Colore nastro" in `new-project` (AUTO + colori). AUTO sceglie il colore
+  che racchiude meglio un'area (buco interno). Testato 12/12 (iteration_13).
+- ✅ **SCATTO SINGOLO automatico** (`server._run_pipeline`): senza bollini rileva il nastro (colore
+  auto o scelto), ne prende i 4 angoli esterni come riferimento (interasse noto) e ricava il contorno
+  del tappeto delimitato dal nastro, salvando SEMPRE la foto raddrizzata (mai tela grigia). Senza nastro:
+  mostra comunque la foto originale + rettangolo provvisorio da correggere. Verificato sulla foto reale
+  (~916×655mm) e su nastri sintetici giallo/verde/rosso/blu.
+
 ## Implemented (2026-08-17)
 - ✅ **Rilevamento NASTRO nel flusso FOTO+RIFERIMENTO** (`photogram._segment_tape`, `rectify_and_extract`):
   dopo il raddrizzamento con i 4 angoli toccati (RETTANGOLO) o la linea, il contorno viene estratto

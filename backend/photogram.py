@@ -134,31 +134,29 @@ def _provisional_rect(w_mm: float, h_mm: float) -> List[List[float]]:
 def _segment_tape(bgr: np.ndarray, background_mode: str = "blue_on_white",
                   cut_side: str = "inner") -> Optional[np.ndarray]:
     """Detect the coloured masking tape delimiting the mat and return the mat
-    outline (Nx2 px). Tries the configured colour first, then the alternative,
-    accepting whichever yields a sensible enclosed region. Returns None if no
-    usable tape band is found (caller falls back to GrabCut)."""
+    outline (Nx2 px). When the colour is 'auto' (or unknown) the best-enclosing
+    colour is auto-selected; otherwise the given colour is used with a fallback
+    to auto. Returns None if no usable tape band is found (caller uses GrabCut)."""
     H, W = bgr.shape[:2]
     area = float(H * W)
-    modes = [background_mode] + [m for m in ("blue_on_white", "white_on_dark") if m != background_mode]
-    best = None
-    best_frac = 0.0
-    for mode in modes:
-        mask = cv.tape_mask(bgr, mode)
-        frac = float(np.count_nonzero(mask)) / area
-        if frac < 0.01 or frac > 0.6:
-            continue
-        cnt = cv.extract_contour(mask, cut_side)
-        if cnt is None or len(cnt) < 4:
-            continue
-        a = cv2.contourArea(cnt.astype(np.float32)) / area
-        # the mat should occupy a meaningful, but not full-frame, portion
-        if a < 0.05 or a > 0.97:
-            continue
-        if a > best_frac:
-            best_frac = a
-            peri = cv2.arcLength(cnt.astype(np.float32), True)
-            best = cv2.approxPolyDP(cnt.astype(np.float32), 0.003 * peri, True).reshape(-1, 2).astype(np.float32)
-    return best
+    mode = (background_mode or "auto").lower()
+    if mode in ("auto", ""):
+        color = cv.best_tape_color(bgr)
+    else:
+        color = mode
+        if cv._tape_score(bgr, color) <= 0:
+            color = cv.best_tape_color(bgr)
+    if color is None:
+        return None
+    mask = cv.tape_mask(bgr, color)
+    cnt = cv.extract_contour(mask, cut_side)
+    if cnt is None or len(cnt) < 4:
+        return None
+    a = cv2.contourArea(cnt.astype(np.float32)) / area
+    if a < 0.05 or a > 0.97:
+        return None
+    peri = cv2.arcLength(cnt.astype(np.float32), True)
+    return cv2.approxPolyDP(cnt.astype(np.float32), 0.003 * peri, True).reshape(-1, 2).astype(np.float32)
 
 
 # --------------------------------------------------------------------------

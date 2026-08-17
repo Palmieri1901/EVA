@@ -1,0 +1,33 @@
+{
+  "summary": "Backend-only iter13 tests for the SCATTO SINGOLO auto-tape feature and multi-colour tape detection. 12/12 tests passed in 10.3s on parallel workers. Verified: (1) /api/projects create with tape_color in {'auto','blu','giallo','verde','rosso'} + capture_mode='single' + ref 900x700; upload photo of a synthetic tape band + inner hole; POST /process returns 200, status='processed', rectified_url set (downloadable /api/files/...), contour_mm >=4 pts, quality.messages contains the italian auto-tape wording (\"Nastro '<colour>' rilevato automaticamente\"), bbox width in [500,1200] mm and height in [400,1000] mm (rough interasse target 900x700). (2) No-tape / no-marker plain gradient photo -> 200, rectified_url NON-null with a downloadable JPEG, contour_mm is a provisional 4-pt rectangle (never null, never 500). (3) REGRESSION marker-based single: 5 black dots + inner blue tape band -> 200 with rectified_url and contour_mm >=4 pts (marker branch still works). (4) REGRESSION photogram: 3 photos (one with blue tape mat) -> /photogram/stitch returns {mosaic_url,w,h} then /photogram/extract type=rect returns detected=true + rectified_url + contour_mm, and type=line returns 200. (5) Errors: /process without photo -> 400; /photogram/extract before stitch -> 400; /photogram/extract with wrong point count (rect w/ 3 pts) after stitch -> 422; GET /api/ still 200 after all calls. No backend errors, no 500s.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_auto_tape.py",
+    "/app/test_reports/pytest/iter13_auto_tape.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server._run_pipeline correctly branches to the auto-tape path when len(corners)<4: it honours project.tape_color when it scores >0, otherwise falls back to cv.best_tape_color(bgr). If both fail, it still returns the ORIGINAL photo + a provisional rectangle contour and never null/500 — matches the requested UX contract.",
+    "cv_pipeline.tape_mask covers blu/azzurro/blue, giallo/yellow, verde/green, rosso/red (dual-range), bianco/white — all 4 requested colours behave symmetrically.",
+    "photogram.rectify_and_extract clamps mm_per_px scale S<=3 px/mm and produces a downloadable JPEG; _segment_tape is used as primary segmenter with GrabCut fallback, so the rect branch works even when tape isn't obvious.",
+    "server.pg_extract passes doc.tape_color (falls back to background_mode then 'auto') and cut_side into photogram.rectify_and_extract, so the auto tape colour selection is available in the photogram flow too."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_auto_tape.py (new)"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "N/A (skipped per request)"},
+  "seed_data_creation": "No pre-seeded fixtures required. Each test creates TEST_iter13_* projects and DELETEs them at the end. All synthetic images are generated in-memory (numpy + cv2.imencode) so no files are written under /app/backend (safe against WatchFiles reload).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run with: EXPO_PUBLIC_BACKEND_URL=https://tappo-dxf.preview.emergentagent.com pytest /app/backend/tests/test_auto_tape.py -v. Uses -n auto (pytest-xdist) with LoadScopeScheduling. Synthetic images: _tape_band_image() draws a coloured rectangular BAND with an inner white hole; _plain_image() draws a soft gradient; _marker_and_tape_image() draws 5 black circular dots + inner blue band. If any of the coloured cases begin to fail after HSV changes in cv_pipeline.tape_mask, update COLOR_BGR to bump saturation/value.",
+  "rca_of_issue": "N/A - no bugs found. All requested features verified end-to-end via the public EXPO_PUBLIC_BACKEND_URL."
+}

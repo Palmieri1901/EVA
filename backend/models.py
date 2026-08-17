@@ -66,6 +66,7 @@ class Project(BaseModel):
 
     # setup params
     background_mode: str = "blue_on_white"  # blue_on_white | white_on_dark
+    tape_color: str = "auto"  # auto | blu | giallo | verde | rosso | bianco
     marker_diameter_mm: float = 20.0
     ref_width_mm: float = 500.0
     ref_height_mm: float = 500.0
@@ -109,6 +110,7 @@ class ProjectCreate(BaseModel):
     boat_id: Optional[str] = None
     piece_name: str = "Pezzo 1"
     background_mode: str = "blue_on_white"
+    tape_color: str = "auto"
     marker_diameter_mm: float = 20.0
     ref_width_mm: float = 500.0
     ref_height_mm: float = 500.0

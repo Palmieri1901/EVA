@@ -169,17 +169,87 @@ def compute_rectification(corners: List[dict], ref_w_mm: float, ref_h_mm: float)
 # --------------------------------------------------------------------------
 def tape_mask(rectified_bgr: np.ndarray, background_mode: str) -> np.ndarray:
     hsv = cv2.cvtColor(rectified_bgr, cv2.COLOR_BGR2HSV)
-    if background_mode == "blue_on_white":
-        lower = np.array([90, 60, 40])
-        upper = np.array([135, 255, 255])
-        mask = cv2.inRange(hsv, lower, upper)
-    else:  # white_on_dark -> bright/white tape
-        lower = np.array([0, 0, 165])
-        upper = np.array([180, 70, 255])
-        mask = cv2.inRange(hsv, lower, upper)
+    mode = (background_mode or "blue_on_white").lower()
+    # accept both legacy background modes and explicit colour names
+    if mode in ("blue_on_white", "blu", "azzurro", "blue"):
+        mask = cv2.inRange(hsv, np.array([90, 60, 40]), np.array([135, 255, 255]))
+    elif mode in ("giallo", "yellow"):
+        mask = cv2.inRange(hsv, np.array([18, 60, 60]), np.array([38, 255, 255]))
+    elif mode in ("verde", "green"):
+        mask = cv2.inRange(hsv, np.array([38, 50, 40]), np.array([85, 255, 255]))
+    elif mode in ("rosso", "red"):
+        m1 = cv2.inRange(hsv, np.array([0, 70, 50]), np.array([10, 255, 255]))
+        m2 = cv2.inRange(hsv, np.array([170, 70, 50]), np.array([180, 255, 255]))
+        mask = m1 | m2
+    else:  # white_on_dark / bianco -> bright/white tape
+        mask = cv2.inRange(hsv, np.array([0, 0, 165]), np.array([180, 70, 255]))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8), iterations=2)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     return mask
+
+
+# colours the auto-detector will try, in a sensible order
+TAPE_COLORS = ["blu", "giallo", "verde", "rosso", "bianco"]
+
+
+def _tape_score(bgr: np.ndarray, color: str) -> float:
+    """Quality of a tape colour = area of the region it encloses (its inner hole),
+    as a fraction of the frame. 0 when the colour does not form a closed band."""
+    H, W = bgr.shape[:2]
+    area = float(H * W)
+    mask = tape_mask(bgr, color)
+    frac = float(np.count_nonzero(mask)) / area
+    if frac < 0.01 or frac > 0.6:
+        return 0.0
+    cnt = extract_contour(mask, "inner")
+    if cnt is None or len(cnt) < 4:
+        return 0.0
+    a = cv2.contourArea(cnt.astype(np.float32)) / area
+    if a < 0.05 or a > 0.97:
+        return 0.0
+    return a
+
+
+def best_tape_color(bgr: np.ndarray) -> Optional[str]:
+    """Return the tape colour that best encloses a region, or None."""
+    best, best_s = None, 0.0
+    for c in TAPE_COLORS:
+        s = _tape_score(bgr, c)
+        if s > best_s:
+            best_s, best = s, c
+    return best
+
+
+def _order_quad(pts: np.ndarray) -> np.ndarray:
+    pts = np.array(pts, dtype=np.float32).reshape(-1, 2)
+    s = pts.sum(axis=1)
+    d = pts[:, 0] - pts[:, 1]
+    tl = pts[int(np.argmin(s))]
+    br = pts[int(np.argmax(s))]
+    tr = pts[int(np.argmax(d))]
+    bl = pts[int(np.argmin(d))]
+    return np.array([tl, tr, br, bl], dtype=np.float32)
+
+
+def detect_tape_quad(bgr: np.ndarray, color: str) -> Optional[np.ndarray]:
+    """Return the 4 outer corners (TL,TR,BR,BL px) of the tape band for `color`,
+    or None if the tape outline cannot be reduced to a sensible quadrilateral."""
+    mask = tape_mask(bgr, color)
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not cnts:
+        return None
+    c = max(cnts, key=cv2.contourArea)
+    peri = cv2.arcLength(c, True)
+    if peri <= 0:
+        return None
+    # progressively relax until we get a 4-point hull-like polygon
+    for eps in (0.02, 0.03, 0.05, 0.08):
+        approx = cv2.approxPolyDP(c, eps * peri, True).reshape(-1, 2)
+        if len(approx) == 4:
+            return _order_quad(approx)
+    # fall back to the min-area rectangle corners
+    box = cv2.boxPoints(cv2.minAreaRect(c))
+    return _order_quad(box)
 
 
 def extract_contour(mask: np.ndarray, cut_side: str) -> Optional[np.ndarray]:
