@@ -31,6 +31,11 @@ FastAPI condiviso; la Computer Vision gira sul backend.
 6. Export DXF in mm con layer distinti; progetti salvati, storico, riesportazione.
 
 ## Implemented (2026-08-15)
+- ✅ **RENDERING BARCA (colori EVA per pezzo)** (`boat_render.py`, `render/[id].tsx`): schermata di
+  composizione per barca: ogni pezzo appare a colori e si può **trascinare/ruotare** per comporre il
+  piano; colore EVA per singolo pezzo (Marrone/Grigio/Nero/Beige) e riga/scanalatura (Bianco/Nero).
+  Backend render (matplotlib) con righe teak, legenda e area totale → `GET /boats/{id}/render.{png|pdf}`.
+  Nuovi campi Project: eva_color, groove_color, layout_x/y/rot (PATCH). Pulsante in boat/[id].
 - ✅ **Rotazione pezzo nell'editor** (`editor/[id].tsx`, `rotatePiece`): riga "RUOTA PEZZO" nella
   scheda PUNTI con ⟲90° / −1° / +1° / ⟳90°. Ruota contorno + elementi attorno al centro del bbox
   e salva. Verificato (quote si scambiano a 90°).

@@ -31,6 +31,7 @@ import nesting
 import exporters
 import photogram
 import aruco_stitch
+import boat_render
 import vectorize as vec
 from dxf_builder import build_dxf
 from models import (
@@ -176,6 +177,21 @@ async def get_boat(boat_id: str):
         out_pieces.append(ps)
     s["pieces"] = out_pieces
     return s
+
+
+@api_router.get("/boats/{boat_id}/render.{fmt}")
+async def boat_render_endpoint(boat_id: str, fmt: str):
+    if fmt not in ("png", "pdf"):
+        raise HTTPException(status_code=400, detail="Formato non supportato")
+    boat = await get_boat_doc(boat_id)
+    pieces = await _boat_pieces(boat_id)
+    pieces = [serialize(p) for p in pieces if p.get("contour_mm")]
+    if not pieces:
+        raise HTTPException(status_code=422, detail="Nessun pezzo con contorno da comporre")
+    data = await run_in_threadpool(boat_render.render, pieces, boat.get("name", "IMBARCAZIONE"), fmt)
+    mime = "application/pdf" if fmt == "pdf" else "image/png"
+    return Response(content=data, media_type=mime,
+                    headers={"Content-Disposition": f'inline; filename="rendering_barca.{fmt}"'})
 
 
 @api_router.patch("/boats/{boat_id}")

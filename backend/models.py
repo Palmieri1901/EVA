@@ -92,6 +92,13 @@ class Project(BaseModel):
     contour_mm: List[List[float]] = Field(default_factory=list)
     elements: List[Element] = Field(default_factory=list)
 
+    # boat rendering / composition
+    eva_color: str = "marrone"       # marrone | grigio | nero | beige
+    groove_color: str = "bianco"     # bianco | nero
+    layout_x: float = 0.0            # mm offset on the boat render canvas
+    layout_y: float = 0.0
+    layout_rot: float = 0.0          # degrees
+
     # export
     dxf_path: Optional[str] = None
     deleted: bool = False
@@ -120,6 +127,11 @@ class ProjectUpdate(BaseModel):
     contour_mm: Optional[List[List[float]]] = None
     elements: Optional[List[Element]] = None
     status: Optional[str] = None
+    eva_color: Optional[str] = None
+    groove_color: Optional[str] = None
+    layout_x: Optional[float] = None
+    layout_y: Optional[float] = None
+    layout_rot: Optional[float] = None
 
 
 class Boat(BaseModel):

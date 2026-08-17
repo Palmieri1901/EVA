@@ -217,6 +217,12 @@ export default function BoatDetail() {
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + space.md }]}>
         {pieces.length > 0 && (
+          <Pressable testID="boat-render-btn" style={[styles.secBtn, { marginBottom: space.md }]} onPress={() => router.push(`/render/${id}` as any)}>
+            <Feather name="layout" size={16} color={colors.onSurface} />
+            <Text style={styles.secBtnText}>RENDERING BARCA (COLORI)</Text>
+          </Pressable>
+        )}
+        {pieces.length > 0 && (
           <View style={styles.exportRow}>
             <Pressable testID="assembly-pdf-btn" style={styles.secBtn} onPress={doAssembly} disabled={pdfBusy}>
               {pdfBusy ? <ActivityIndicator size="small" color={colors.onSurface} /> : (

@@ -106,6 +106,11 @@ export interface ProjectT {
   };
   contour_mm: number[][];
   elements: ElementT[];
+  eva_color?: string;
+  groove_color?: string;
+  layout_x?: number;
+  layout_y?: number;
+  layout_rot?: number;
 }
 
 export interface BoatT {
@@ -139,6 +144,7 @@ export const api = {
   getProject: (id: string): Promise<ProjectT> => req(`/projects/${id}`),
   createProject: (body: any): Promise<ProjectT> =>
     req("/projects", { method: "POST", body: JSON.stringify(body) }),
+  boatRenderUrl: (id: string, fmt: "png" | "pdf" = "png") => `${API}/boats/${id}/render.${fmt}`,
   updateProject: (id: string, body: any): Promise<ProjectT> =>
     req(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteProject: (id: string) => req(`/projects/${id}`, { method: "DELETE" }),
