@@ -231,6 +231,23 @@ export default function Editor() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
   };
 
+  const rotatePiece = (deg: number) => {
+    if (contour.length < 2) return;
+    const bb = bboxOf(contour);
+    const r = (deg * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
+    const rot = (p: Pt): Pt => {
+      const x = p[0] - bb.cx, y = p[1] - bb.cy;
+      return [bb.cx + x * cos - y * sin, bb.cy + x * sin + y * cos];
+    };
+    const newContour = contour.map(rot);
+    const newElements = elements.map((e) => ({ ...e, polylines: e.polylines.map((pl) => pl.map(rot)) }));
+    setContour(newContour);
+    setElements(newElements);
+    setSelNode(null);
+    Haptics.selectionAsync().catch(() => {});
+    save({ contour_mm: newContour, elements: newElements });
+  };
+
   const elCenter = (el: ElementT) => {
     const pts = el.polylines.flat();
     if (!pts.length) return { x: 0, y: 0 };
@@ -664,6 +681,7 @@ export default function Editor() {
             nudge={nudge}
             addNode={addNode}
             delNode={delNode}
+            rotatePiece={rotatePiece}
             offset={offset}
             setOffset={setOffset}
             fillet={fillet}
@@ -925,7 +943,7 @@ function ModalField({ label, ...props }: any) {
 }
 
 function PointsPanel(props: any) {
-  const { step, setStep, selected, nudge, addNode, delNode, offset, setOffset, fillet, setFillet, onApply } = props;
+  const { step, setStep, selected, nudge, addNode, delNode, rotatePiece, offset, setOffset, fillet, setFillet, onApply } = props;
   return (
     <View>
       <View style={styles.padRow}>
@@ -967,6 +985,26 @@ function PointsPanel(props: any) {
               <Text style={[styles.actText, { color: selected ? colors.error : colors.border }]}>ELIMINA</Text>
             </Pressable>
           </View>
+        </View>
+      </View>
+
+      <View style={styles.rotateRow}>
+        <Text style={styles.rotLabel}>RUOTA PEZZO</Text>
+        <View style={styles.rotBtns}>
+          <Pressable testID="rot-90ccw" style={styles.rotBtn} onPress={() => rotatePiece(-90)}>
+            <Feather name="rotate-ccw" size={15} color={colors.onSurface} />
+            <Text style={styles.rotText}>90°</Text>
+          </Pressable>
+          <Pressable testID="rot-1ccw" style={styles.rotBtn} onPress={() => rotatePiece(-1)}>
+            <Text style={styles.rotText}>−1°</Text>
+          </Pressable>
+          <Pressable testID="rot-1cw" style={styles.rotBtn} onPress={() => rotatePiece(1)}>
+            <Text style={styles.rotText}>+1°</Text>
+          </Pressable>
+          <Pressable testID="rot-90cw" style={styles.rotBtn} onPress={() => rotatePiece(90)}>
+            <Feather name="rotate-cw" size={15} color={colors.onSurface} />
+            <Text style={styles.rotText}>90°</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -1152,6 +1190,15 @@ const styles = StyleSheet.create({
   },
   stepText: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.brand },
   stepChips: { flexDirection: "row", gap: space.sm },
+  rotateRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: space.sm, marginBottom: space.xs },
+  rotLabel: { fontFamily: fonts.monoMed, fontSize: 11, color: colors.onSurfaceSecondary, textTransform: "uppercase" },
+  rotBtns: { flexDirection: "row", gap: space.sm },
+  rotBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4, minWidth: 52, justifyContent: "center",
+    borderWidth: BORDER, borderColor: colors.borderStrong, paddingVertical: 8, paddingHorizontal: 8,
+    backgroundColor: colors.surface,
+  },
+  rotText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface },
   stepChip: { flex: 1, borderWidth: BORDER, borderColor: colors.borderStrong, paddingVertical: 6, alignItems: "center", backgroundColor: colors.surface },
   stepChipText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface },
   actBtn: {

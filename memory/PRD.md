@@ -31,6 +31,9 @@ FastAPI condiviso; la Computer Vision gira sul backend.
 6. Export DXF in mm con layer distinti; progetti salvati, storico, riesportazione.
 
 ## Implemented (2026-08-15)
+- ✅ **Rotazione pezzo nell'editor** (`editor/[id].tsx`, `rotatePiece`): riga "RUOTA PEZZO" nella
+  scheda PUNTI con ⟲90° / −1° / +1° / ⟳90°. Ruota contorno + elementi attorno al centro del bbox
+  e salva. Verificato (quote si scambiano a 90°).
 - ✅ **ArUco multi-foto per pezzi grandi/complessi** (`aruco_stitch.py`): l'utente stampa un foglio
   di marker ArUco (`GET /api/aruco/sheet.pdf?mm=`, DICT_4X4_50, matplotlib), ne appoggia alcuni sul
   piano attorno al pezzo, scatta più foto sovrapposte (ogni foto condivide ≥1 marker). Il backend
