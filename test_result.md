@@ -198,6 +198,17 @@ test_plan:
 agent_communication:
     -agent: "main"
     -message: |
+      FIX (2026-08-17d): "Uncaught Error" on RIEMPI AREA with a typed text ("SANDRO") + clear-area.
+      Root cause: a frontend react-native-svg render crash on non-finite/malformed polyline points
+      (API HTTP errors are already turned into toasts by src/api.ts req(), so it was NOT a backend
+      response error). Fix: editor/[id].tsx ptsStr() now filters non-finite/short points and render
+      skips empty polylines (covers contour, fillet preview, text/svg/fill elements). Backend
+      /geometry/fill wrapped in try/except -> 422 + logged traceback instead of 500.
+      Reproduced the user's exact case (text SANDRO, clear 15mm, style bordato, border 40mm, pattern
+      lines) via screenshot automation: fill succeeds, clear gap around the text, ZERO page errors.
+      text_to_polylines and svg_to_polylines verified NaN-free across edge cases.
+    -agent: "main"
+    -message: |
       NEW (2026-08-17b): Two features added.
       (1) MULTI-COLOUR TAPE: cv_pipeline.tape_mask now supports blu/giallo/verde/rosso/bianco +
           best_tape_color()/detect_tape_quad(). Project has new field tape_color (default "auto").

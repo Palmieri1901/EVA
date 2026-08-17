@@ -46,7 +46,14 @@ function perimeter(pts: Pt[]) {
   }
   return t;
 }
-const ptsStr = (arr: Pt[]) => arr.map((p) => `${p[0]},${p[1]}`).join(" ");
+const ptsStr = (arr: Pt[]) =>
+  (arr || [])
+    .filter(
+      (p) =>
+        Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])
+    )
+    .map((p) => `${p[0]},${p[1]}`)
+    .join(" ");
 
 // True CAD fillet: round each corner with a circular arc of `r`, keeping the
 // straight edges in place. Mirrors backend geometry_ops.apply_fillet so the
@@ -619,13 +626,15 @@ export default function Editor() {
                 )}
                 {elements.map((el) =>
                   el.polylines.map((pl, j) => {
+                    const s = ptsStr(pl);
+                    if (!s) return null;
                     const gw = Number(el?.params?.groove) || 0;
                     const color = el.layer === "CUT" ? "#5A0F0F" : CAULK;
                     const strokeW = el.layer === "CUT" ? sw : Math.max(sw, gw * 0.6);
                     return (
                       <Polyline
                         key={`t_${el.id}_${j}`}
-                        points={ptsStr(pl)}
+                        points={s}
                         fill="none"
                         stroke={color}
                         strokeWidth={strokeW}
@@ -654,15 +663,19 @@ export default function Editor() {
                 </G>
                 {/* elements */}
                 {elements.map((el) =>
-                  el.polylines.map((pl, j) => (
-                    <Polyline
-                      key={`${el.id}_${j}`}
-                      points={ptsStr(pl)}
-                      fill="none"
-                      stroke={selElement === el.id ? colors.brand : el.layer === "CUT" ? colors.cut : colors.engrave}
-                      strokeWidth={selElement === el.id ? sw * 2 : sw}
-                    />
-                  ))
+                  el.polylines.map((pl, j) => {
+                    const s = ptsStr(pl);
+                    if (!s) return null;
+                    return (
+                      <Polyline
+                        key={`${el.id}_${j}`}
+                        points={s}
+                        fill="none"
+                        stroke={selElement === el.id ? colors.brand : el.layer === "CUT" ? colors.cut : colors.engrave}
+                        strokeWidth={selElement === el.id ? sw * 2 : sw}
+                      />
+                    );
+                  })
                 )}
                 {/* main contour */}
                 {contour.length >= 3 && (

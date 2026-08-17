@@ -30,6 +30,17 @@ FastAPI condiviso; la Computer Vision gira sul backend.
    layer INCISIONE (ENGRAVE) / TAGLIO (CUT).
 6. Export DXF in mm con layer distinti; progetti salvati, storico, riesportazione.
 
+## Fix (2026-08-17d) — crash "Uncaught Error" su RIEMPI AREA con scritta/logo
+- Causa: errore di RENDER nel frontend (react-native-svg) quando un `<Polyline>`/`<Polygon>`
+  riceveva punti non finiti/malformati (possibile logo SVG o geometria degenere). Il client API
+  converte già gli errori HTTP in toast, quindi il crash NON era una risposta backend.
+- Fix frontend (`editor/[id].tsx`): `ptsStr` ora filtra i punti non finiti/malformati e salta i
+  polyline vuoti in fase di render (contorno, fillet preview, elementi, fill) → nessun crash possibile.
+- Fix backend (`server.py /geometry/fill`): avvolto in try/except → mai più 500, ritorna 422 con
+  messaggio e logga la traceback completa (per diagnosi se ricapita).
+- Nota: non riproducibile con testo "EVA 40"/vari (text_to_polylines e svg_to_polylines verificati
+  puliti, nessun NaN); l'hardening copre qualsiasi sorgente.
+
 ## Implemented (2026-08-17c)
 - ✅ **Punti bianchi sul nastro** (`cv_pipeline.detect_tape_corner_dots`): rileva i segni di
   pennarello BIANCO disegnati sul nastro (es. bianco su nastro blu) come i 4 angoli di riferimento
