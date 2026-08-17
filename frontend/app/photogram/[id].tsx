@@ -1,7 +1,8 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,7 +16,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import Svg, { Circle, Line as SvgLine, Polygon } from "react-native-svg";
+import Svg, { Line as SvgLine, Polygon } from "react-native-svg";
 
 import { absUrl, api, PgPhotoT } from "@/src/api";
 import { Btn } from "@/src/components/ui";
@@ -166,6 +167,43 @@ export default function Photogram() {
 
   const toDisp = (p: Pt) => ({ x: (p.x / (mosaic?.w || 1)) * dispW, y: (p.y / (mosaic?.h || 1)) * dispH });
 
+  // Live geometry/points refs so the memoised drag handlers read current values
+  const geomRef = useRef({ dispW, dispH, mw: mosaic?.w || 1, mh: mosaic?.h || 1 });
+  geomRef.current = { dispW, dispH, mw: mosaic?.w || 1, mh: mosaic?.h || 1 };
+  const pointsRef = useRef(points);
+  pointsRef.current = points;
+  const dragStart = useRef<Record<number, { x: number; y: number }>>({});
+
+  const dotResponders = useMemo(
+    () =>
+      [0, 1, 2, 3].map((i) =>
+        PanResponder.create({
+          onStartShouldSetPanResponder: () => true,
+          onMoveShouldSetPanResponder: () => true,
+          onPanResponderGrant: () => {
+            const g = geomRef.current;
+            const p = pointsRef.current[i];
+            if (p) dragStart.current[i] = { x: (p.x / g.mw) * g.dispW, y: (p.y / g.mh) * g.dispH };
+          },
+          onPanResponderMove: (_e, gs) => {
+            const g = geomRef.current;
+            const s = dragStart.current[i];
+            if (!s || !g.dispW || !g.dispH) return;
+            const nx = Math.max(0, Math.min(g.dispW, s.x + gs.dx));
+            const ny = Math.max(0, Math.min(g.dispH, s.y + gs.dy));
+            setPoints((prev) => {
+              if (!prev[i]) return prev;
+              const c = [...prev];
+              c[i] = { x: (nx / g.dispW) * g.mw, y: (ny / g.dispH) * g.mh };
+              return c;
+            });
+          },
+          onPanResponderRelease: () => Haptics.selectionAsync().catch(() => {}),
+        })
+      ),
+    []
+  );
+
   const doExtract = async () => {
     if (!id) return;
     if (points.length !== need) {
@@ -296,8 +334,8 @@ export default function Photogram() {
           <Feather name="info" size={14} color={colors.brand} />
           <Text style={styles.infoText}>
             {refType === "rect"
-              ? "Tocca i 4 ANGOLI del riferimento rettangolare sull'immagine, poi inserisci larghezza e altezza reali in mm. Raddrizzo la prospettiva per un contorno preciso."
-              : "Tocca i 2 estremi di una distanza nota (es. tacche del righello), poi inserisci la lunghezza reale in mm. Imposta solo la scala."}
+              ? "Tocca i 4 ANGOLI del riferimento rettangolare, poi TRASCINALI per posizionarli con precisione. Inserisci larghezza e altezza reali in mm: raddrizzo la prospettiva."
+              : "Tocca i 2 estremi di una distanza nota (es. tacche del righello), poi TRASCINALI per regolarli. Inserisci la lunghezza reale in mm."}
           </Text>
         </View>
 
@@ -321,34 +359,47 @@ export default function Photogram() {
           onLayout={(e) => setDispW(e.nativeEvent.layout.width)}
         >
           {mosaic && dispW > 0 && (
-            <Pressable testID="pg-canvas" onPress={onImgPress}>
-              <Image
-                source={{ uri: absUrl(mosaic.url) }}
-                style={{ width: dispW, height: dispH }}
-                contentFit="fill"
-              />
-              <Svg style={StyleSheet.absoluteFill} width={dispW} height={dispH}>
-                {refType === "rect" && points.length === 4 && (
-                  <Polygon
-                    points={points.map((p) => { const d = toDisp(p); return `${d.x},${d.y}`; }).join(" ")}
-                    fill="rgba(255,69,0,0.12)"
-                    stroke={colors.brand}
-                    strokeWidth={2}
-                  />
-                )}
-                {refType === "line" && points.length === 2 && (
-                  <SvgLine
-                    x1={toDisp(points[0]).x} y1={toDisp(points[0]).y}
-                    x2={toDisp(points[1]).x} y2={toDisp(points[1]).y}
-                    stroke={colors.brand} strokeWidth={3}
-                  />
-                )}
-                {points.map((p, i) => {
-                  const d = toDisp(p);
-                  return <Circle key={i} cx={d.x} cy={d.y} r={7} fill={colors.brand} stroke="#fff" strokeWidth={2} />;
-                })}
-              </Svg>
-            </Pressable>
+            <View>
+              <Pressable testID="pg-canvas" onPress={onImgPress}>
+                <Image
+                  source={{ uri: absUrl(mosaic.url) }}
+                  style={{ width: dispW, height: dispH }}
+                  contentFit="fill"
+                />
+                <Svg style={StyleSheet.absoluteFill} width={dispW} height={dispH} pointerEvents="none">
+                  {refType === "rect" && points.length === 4 && (
+                    <Polygon
+                      points={points.map((p) => { const d = toDisp(p); return `${d.x},${d.y}`; }).join(" ")}
+                      fill="rgba(255,69,0,0.12)"
+                      stroke={colors.brand}
+                      strokeWidth={2}
+                    />
+                  )}
+                  {refType === "line" && points.length === 2 && (
+                    <SvgLine
+                      x1={toDisp(points[0]).x} y1={toDisp(points[0]).y}
+                      x2={toDisp(points[1]).x} y2={toDisp(points[1]).y}
+                      stroke={colors.brand} strokeWidth={3}
+                    />
+                  )}
+                </Svg>
+              </Pressable>
+              {points.map((p, i) => {
+                const d = toDisp(p);
+                return (
+                  <View
+                    key={i}
+                    testID={`pg-dot-${i}`}
+                    {...dotResponders[i].panHandlers}
+                    style={[styles.dotHit, { left: d.x - 18, top: d.y - 18 }]}
+                  >
+                    <View style={styles.dot}>
+                      <Text style={styles.dotLabel}>{i + 1}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
           )}
         </View>
 
@@ -444,6 +495,14 @@ const styles = StyleSheet.create({
     width: "100%", borderWidth: BORDER, borderColor: colors.borderStrong,
     backgroundColor: colors.surfaceTertiary, overflow: "hidden",
   },
+  dotHit: {
+    position: "absolute", width: 36, height: 36, alignItems: "center", justifyContent: "center",
+  },
+  dot: {
+    width: 20, height: 20, borderRadius: 10, backgroundColor: colors.brand,
+    borderWidth: 2, borderColor: "#fff", alignItems: "center", justifyContent: "center",
+  },
+  dotLabel: { color: "#fff", fontFamily: fonts.monoMed, fontSize: 10 },
   ptRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginVertical: space.md },
   ptText: { fontFamily: fonts.monoMed, fontSize: fontSize.base, color: colors.onSurface },
   resetBtn: { flexDirection: "row", gap: 6, alignItems: "center", borderWidth: BORDER, borderColor: colors.borderStrong, paddingHorizontal: space.md, paddingVertical: 6 },
