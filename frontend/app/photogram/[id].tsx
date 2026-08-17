@@ -213,7 +213,7 @@ export default function Photogram() {
           <Pressable testID="pg-back" onPress={() => router.replace("/")} hitSlop={12}>
             <Feather name="arrow-left" size={22} color={colors.onSurface} />
           </Pressable>
-          <Text style={styles.title}>MULTI-FOTO 3D</Text>
+          <Text style={styles.title}>FOTO + RIFERIMENTO</Text>
           <View style={{ width: 22 }} />
         </View>
 
@@ -221,9 +221,9 @@ export default function Photogram() {
           <View style={styles.infoBox}>
             <Feather name="aperture" size={14} color={colors.brand} />
             <Text style={styles.infoText}>
-              Scatta 3–8 foto del pezzo piatto da varie angolazioni, a circa 1 m di distanza, con
-              buona sovrapposizione tra una foto e l'altra. Metti nell'inquadratura anche un
-              riferimento di misura nota (un cartoncino rettangolare o un righello).
+              Scatta UNA foto del pezzo piatto dall'alto, il più possibile parallela al piano.
+              Nell'inquadratura metti anche un riferimento di misura nota (foglio A4 = 210×297 mm,
+              oppure un righello). Poi premi CONTINUA per indicare il riferimento.
             </Text>
           </View>
 
@@ -251,7 +251,7 @@ export default function Photogram() {
           {!loading && photos.length === 0 && (
             <View style={styles.empty}>
               <MaterialCommunityIcons name="camera-burst" size={56} color={colors.onSurfaceTertiary} />
-              <Text style={styles.emptyText}>Nessuna foto. Aggiungine dalla fotocamera o dalla galleria.</Text>
+              <Text style={styles.emptyText}>Nessuna foto. Scatta una foto dall'alto o scegline una dalla galleria.</Text>
             </View>
           )}
         </ScrollView>
@@ -269,10 +269,10 @@ export default function Photogram() {
           </View>
           <Btn
             testID="pg-stitch"
-            label={`UNISCI FOTO (${photos.length})`}
+            label={photos.length > 1 ? `CONTINUA (${photos.length} foto)` : "CONTINUA"}
             disabled={photos.length === 0}
             loading={stitching}
-            icon={<MaterialCommunityIcons name="vector-union" size={20} color={colors.onBrand} />}
+            icon={<Feather name="arrow-right" size={20} color={colors.onBrand} />}
             onPress={doStitch}
           />
         </View>

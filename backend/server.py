@@ -630,13 +630,7 @@ async def pg_delete_photo(project_id: str, photo_id: str):
 
 
 def _run_pg_stitch(imgs_bytes: list) -> dict:
-    imgs = []
-    for b in imgs_bytes:
-        arr = np.frombuffer(b, np.uint8)
-        bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        if bgr is not None:
-            imgs.append(bgr)
-    mosaic, warning = photogram.stitch_photos(imgs)
+    mosaic, warning = photogram.prepare_image(imgs_bytes)
     if mosaic is None:
         return {"error": warning}
     ok, buf = cv2.imencode(".jpg", mosaic, [cv2.IMWRITE_JPEG_QUALITY, 90])

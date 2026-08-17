@@ -25,7 +25,7 @@ import cv_pipeline as cv
 
 log = logging.getLogger("photogram")
 
-MAX_DIM = 2200  # cap image dimension for speed/memory
+MAX_DIM = 2200        # cap for the working / rectified image
 
 
 def _fit(img: np.ndarray, cap: int = MAX_DIM) -> np.ndarray:
@@ -36,29 +36,38 @@ def _fit(img: np.ndarray, cap: int = MAX_DIM) -> np.ndarray:
     return img
 
 
+def _sharpest(imgs: List[np.ndarray]) -> np.ndarray:
+    best, best_score = imgs[0], -1.0
+    for im in imgs:
+        g = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+        score = float(cv2.Laplacian(g, cv2.CV_64F).var())
+        if score > best_score:
+            best, best_score = im, score
+    return best
+
+
 # --------------------------------------------------------------------------
 # 1) Mosaic: combine all photos into one image
 # --------------------------------------------------------------------------
-def stitch_photos(images: List[np.ndarray]) -> Tuple[Optional[np.ndarray], Optional[str]]:
-    """Return (mosaic, warning). mosaic is None only on fatal error (2nd item = reason)."""
-    imgs = [_fit(im) for im in images if im is not None]
+def prepare_image(images_bytes: List[bytes]) -> Tuple[Optional[np.ndarray], Optional[str]]:
+    """Pick the working image for a flat piece: the single uploaded photo, or the
+    sharpest one when several were provided. Fully in-process and crash-safe — no
+    external stitching is performed (a flat piece needs one rectified photo).
+    Returns (image, warning); image is None only when no valid photo is found.
+    """
+    imgs = []
+    for b in images_bytes:
+        im = cv2.imdecode(np.frombuffer(b, np.uint8), cv2.IMREAD_COLOR)
+        if im is not None:
+            imgs.append(_fit(im, MAX_DIM))
     if not imgs:
-        return None, "Nessuna foto valida da unire."
+        return None, "Nessuna foto valida."
     if len(imgs) == 1:
         return imgs[0], None
-    for mode in (cv2.Stitcher_SCANS, cv2.Stitcher_PANORAMA):
-        try:
-            st = cv2.Stitcher_create(mode)
-            status, pano = st.stitch(imgs)
-            if status == cv2.Stitcher_OK and pano is not None and pano.size:
-                return _fit(pano), None
-        except Exception as e:  # noqa: BLE001
-            log.warning("stitch mode %s failed: %s", mode, e)
-            continue
-    # Non-fatal: fall back to the first photo so the user can still proceed.
-    return imgs[0], ("Non sono riuscito a unire le foto (poca sovrapposizione o "
-                     "inquadrature troppo diverse): uso solo la prima foto. "
-                     "Riprova scattando con più sovrapposizione tra le foto.")
+    return _sharpest(imgs), (
+        "Hai caricato più foto: uso la più nitida. Per un pezzo piatto basta una sola "
+        "foto ben inquadrata dall'alto, con il riferimento di misura ben visibile."
+    )
 
 
 # --------------------------------------------------------------------------

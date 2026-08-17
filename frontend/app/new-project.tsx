@@ -95,7 +95,7 @@ export default function NewProject() {
           options={[
             { label: "SCATTO SINGOLO", value: "single" },
             { label: "MULTI-SCATTO", value: "multi" },
-            { label: "MULTI-FOTO 3D", value: "photogram" },
+            { label: "FOTO + RIFERIMENTO", value: "photogram" },
           ]}
         />
         {captureMode === "multi" && (
@@ -111,9 +111,9 @@ export default function NewProject() {
           <View style={[styles.infoBox, { marginTop: space.md, marginBottom: 0 }]}>
             <Feather name="aperture" size={14} color={colors.brand} />
             <Text style={styles.infoText}>
-              Pezzo piatto senza bollini: scatta 3–8 foto da varie angolazioni a circa 1 m. Le unisco
-              in un'unica immagine; poi indichi un riferimento di misura nota (rettangolo o linea) per
-              la scala e ricavo il contorno. Il diametro bollino e l'interasse qui sotto non servono.
+              Pezzo piatto senza bollini: scatta UNA foto dall'alto con nell'inquadratura un
+              riferimento di misura nota (foglio A4 o righello). Indichi il riferimento e ricavo il
+              contorno in scala. Il diametro bollino e l'interasse qui sotto non servono.
             </Text>
           </View>
         )}

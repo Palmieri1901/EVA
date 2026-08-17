@@ -31,16 +31,15 @@ FastAPI condiviso; la Computer Vision gira sul backend.
 6. Export DXF in mm con layer distinti; progetti salvati, storico, riesportazione.
 
 ## Implemented (2026-08-15)
-- ✅ **Fotogrammetria multi-foto per pezzi PIATTI (senza bollini)** (`photogram.py`, schermata
-  `photogram/[id].tsx`, `capture_mode=photogram`): l'utente scatta 3–8 foto del pezzo da varie
-  angolazioni a ~1 m; le foto vengono unite in un unico mosaico (OpenCV Stitcher, fallback prima
-  foto), poi l'utente marca sul mosaico un riferimento di misura nota — RETTANGOLO (4 angoli +
-  larghezza×altezza → raddrizzamento prospettico completo) oppure LINEA (2 punti + lunghezza →
-  sola scala) — e il backend rettifica/scala e segmenta il contorno del pezzo (GrabCut su copia
-  ridotta ~600px per velocità, ~1.5s) restituendolo come `contour_mm` + immagine rettificata +
-  `mm_per_px`; il pezzo passa a `processed` e si apre l'editor per rifinire ed esportare in DXF.
-  Endpoints: `/projects/{id}/photogram/photos` (POST/GET/DELETE), `/photogram/stitch`,
-  `/photogram/extract`. Backend 15/15 test; flusso UI verificato end-to-end.
+- ✅ **FOTO + RIFERIMENTO (pezzi piatti, senza bollini)** (`photogram.py`, `photogram/[id].tsx`,
+  `capture_mode=photogram`): scatta UNA foto dall'alto del pezzo piatto con un riferimento di
+  misura nota nell'inquadratura → indichi il riferimento sul mosaico (RETTANGOLO 4 angoli + W×H,
+  oppure LINEA 2 punti + lunghezza) → rettificazione/scala + segmentazione GrabCut (su copia
+  ridotta ~600px, ~1.5s) → `contour_mm` + immagine rettificata + `mm_per_px`, stato `processed`,
+  apre l'editor. IMPORTANTE: lo stitching multi-foto (OpenCV Stitcher) è stato RIMOSSO perché
+  causava crash nativi del backend; ora `prepare_image()` sceglie la foto singola (o la più nitida
+  se più di una), tutto in-process e a prova di crash. Verificato end-to-end sul pezzo reale a L.
+  (Nota: `stitch_worker.py` resta nel repo ma NON è più usato.)
 - ✅ Fix: `server.py:_run_pipeline` fallback <4 bollini usava `geo.simplify_contour_mm`
   (inesistente) → corretto in `cv.simplify_contour_mm` (crash 500 pre-esistente).
 - ✅ **Motore COLORE loghi (vtracer)** (`vectorize.py`, modalità `subject=colore`): traccia loghi/emblemi
