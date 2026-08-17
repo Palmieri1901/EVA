@@ -30,6 +30,17 @@ FastAPI condiviso; la Computer Vision gira sul backend.
    layer INCISIONE (ENGRAVE) / TAGLIO (CUT).
 6. Export DXF in mm con layer distinti; progetti salvati, storico, riesportazione.
 
+## Implemented (2026-08-17c)
+- ✅ **Punti bianchi sul nastro** (`cv_pipeline.detect_tape_corner_dots`): rileva i segni di
+  pennarello BIANCO disegnati sul nastro (es. bianco su nastro blu) come i 4 angoli di riferimento
+  (più precisi degli angoli del nastro). Integrato in `_run_pipeline` (SCATTO SINGOLO auto): prova
+  prima i punti bianchi, poi ripiega sugli angoli del nastro. Validato su immagine sintetica.
+- ✅ **RACCORDO angoli con anteprima LIVE** (`geometry_ops.apply_fillet` riscritto a fillet per-angolo
+  ad archi tangenti — mantiene i lati dritti, arrotonda solo gli spigoli col raggio dato, clamp per
+  angolo). L'editor mostra l'anteprima arrotondata in tempo reale (`roundPolygon` in editor/[id].tsx,
+  stesso algoritmo del backend → WYSIWYG con l'export) + chip preset 0/5/10/20 mm. Il contorno "vivo"
+  (spigoloso) resta tratteggiato/attenuato sotto. Export SVG/DXF applicano lo stesso fillet.
+
 ## Implemented (2026-08-17b)
 - ✅ **Nastro multi-colore + AUTO** (`cv_pipeline.tape_mask`/`best_tape_color`/`detect_tape_quad`):
   rilevamento nastro per blu/azzurro, giallo, verde, rosso, bianco. Nuovo campo `Project.tape_color`

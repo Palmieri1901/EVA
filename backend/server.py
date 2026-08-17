@@ -371,7 +371,14 @@ def _run_pipeline(img_bytes: bytes, project: dict) -> dict:
         w, h = project["ref_width_mm"], project["ref_height_mm"]
         tape_pref = (project.get("tape_color") or project.get("background_mode") or "auto")
         color = tape_pref if tape_pref not in ("auto", "", None) and cv._tape_score(bgr, tape_pref) > 0 else cv.best_tape_color(bgr)
-        quad = cv.detect_tape_quad(bgr, color) if color else None
+        quad = None
+        used_dots = False
+        if color:
+            quad = cv.detect_tape_corner_dots(bgr, color)  # white pen marks on the tape
+            if quad is not None:
+                used_dots = True
+            else:
+                quad = cv.detect_tape_quad(bgr, color)     # fall back to tape corners
         if quad is not None:
             ref = {"type": "rect", "points": quad.tolist(), "width_mm": w, "height_mm": h}
             try:
@@ -380,8 +387,9 @@ def _run_pipeline(img_bytes: bytes, project: dict) -> dict:
                 res = None
                 logger.warning("auto-tape rectify failed: %s", e)
             if res is not None:
+                ref_src = "punti bianchi agli angoli" if used_dots else "angoli del nastro"
                 messages.append(
-                    f"Nastro '{color}' rilevato automaticamente: contorno sul nastro. "
+                    f"Nastro '{color}' rilevato automaticamente ({ref_src}): contorno sul nastro. "
                     "Per la massima precisione usa FOTO + RIFERIMENTO toccando i 4 angoli."
                 )
                 quality = Quality(

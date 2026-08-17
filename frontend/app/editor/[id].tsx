@@ -48,6 +48,56 @@ function perimeter(pts: Pt[]) {
 }
 const ptsStr = (arr: Pt[]) => arr.map((p) => `${p[0]},${p[1]}`).join(" ");
 
+// True CAD fillet: round each corner with a circular arc of `r`, keeping the
+// straight edges in place. Mirrors backend geometry_ops.apply_fillet so the
+// editor preview matches the exported geometry.
+function roundPolygon(points: Pt[], r: number, seg = 10): Pt[] {
+  if (r <= 0 || points.length < 3) return points;
+  let pts = points.map((p) => [p[0], p[1]]);
+  const first = pts[0], last = pts[pts.length - 1];
+  if (pts.length >= 2 && Math.abs(first[0] - last[0]) < 1e-6 && Math.abs(first[1] - last[1]) < 1e-6) {
+    pts = pts.slice(0, -1);
+  }
+  const n = pts.length;
+  if (n < 3) return points;
+  const out: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const prev = pts[(i - 1 + n) % n];
+    const cur = pts[i];
+    const nxt = pts[(i + 1) % n];
+    const v1x = prev[0] - cur[0], v1y = prev[1] - cur[1];
+    const v2x = nxt[0] - cur[0], v2y = nxt[1] - cur[1];
+    const l1 = Math.hypot(v1x, v1y), l2 = Math.hypot(v2x, v2y);
+    if (l1 < 1e-6 || l2 < 1e-6) { out.push([cur[0], cur[1]]); continue; }
+    const u1 = [v1x / l1, v1y / l1], u2 = [v2x / l2, v2y / l2];
+    const dot = Math.max(-1, Math.min(1, u1[0] * u2[0] + u1[1] * u2[1]));
+    const theta = Math.acos(dot);
+    if (theta < 1e-3 || theta > Math.PI - 1e-3) { out.push([cur[0], cur[1]]); continue; }
+    const half = theta / 2;
+    let t = r / Math.tan(half);
+    t = Math.min(t, Math.min(l1, l2) * 0.5);
+    const rr = t * Math.tan(half);
+    const p1 = [cur[0] + u1[0] * t, cur[1] + u1[1] * t];
+    const p2 = [cur[0] + u2[0] * t, cur[1] + u2[1] * t];
+    let bx = u1[0] + u2[0], by = u1[1] + u2[1];
+    const bl = Math.hypot(bx, by);
+    if (bl < 1e-6) { out.push([cur[0], cur[1]]); continue; }
+    bx /= bl; by /= bl;
+    const cx = cur[0] + bx * (rr / Math.sin(half));
+    const cy = cur[1] + by * (rr / Math.sin(half));
+    const a1 = Math.atan2(p1[1] - cy, p1[0] - cx);
+    const a2 = Math.atan2(p2[1] - cy, p2[0] - cx);
+    let da = a2 - a1;
+    while (da <= -Math.PI) da += 2 * Math.PI;
+    while (da > Math.PI) da -= 2 * Math.PI;
+    for (let k = 0; k <= seg; k++) {
+      const a = a1 + da * (k / seg);
+      out.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]);
+    }
+  }
+  return out;
+}
+
 function niceStep(vw: number) {
   const target = vw / 8;
   const steps = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
@@ -509,6 +559,11 @@ export default function Editor() {
 
   const bb = useMemo(() => bboxOf(contour), [contour]);
   const perim = useMemo(() => perimeter(contour), [contour]);
+  const filletR = parseFloat(fillet) || 0;
+  const filletedContour = useMemo(
+    () => (filletR > 0 && contour.length >= 3 ? roundPolygon(contour, filletR) : null),
+    [contour, filletR]
+  );
   const rectUrl = absUrl(project?.rectified_url);
   const imgW = project && project.rectified_w_px > 0 ? project.rectified_w_px * project.mm_per_px : project?.ref_width_mm || 0;
   const imgH = project && project.rectified_h_px > 0 ? project.rectified_h_px * project.mm_per_px : project?.ref_height_mm || 0;
@@ -560,7 +615,7 @@ export default function Editor() {
             {teak ? (
               <>
                 {contour.length >= 3 && (
-                  <Polygon points={ptsStr(contour)} fill={TEAK} stroke={TEAK_EDGE} strokeWidth={sw} />
+                  <Polygon points={ptsStr(filletedContour || contour)} fill={TEAK} stroke={TEAK_EDGE} strokeWidth={sw} />
                 )}
                 {elements.map((el) =>
                   el.polylines.map((pl, j) => {
@@ -611,7 +666,16 @@ export default function Editor() {
                 )}
                 {/* main contour */}
                 {contour.length >= 3 && (
-                  <Polygon points={ptsStr(contour)} fill="rgba(255,69,0,0.10)" stroke={colors.brand} strokeWidth={sw * 1.4} />
+                  filletedContour ? (
+                    <>
+                      {/* sharp source outline, dimmed */}
+                      <Polygon points={ptsStr(contour)} fill="none" stroke={colors.brand} strokeWidth={sw * 0.7} strokeOpacity={0.35} strokeDasharray={`${sw * 3},${sw * 3}`} />
+                      {/* filleted (rounded) result */}
+                      <Polygon points={ptsStr(filletedContour)} fill="rgba(255,69,0,0.10)" stroke={colors.brand} strokeWidth={sw * 1.4} />
+                    </>
+                  ) : (
+                    <Polygon points={ptsStr(contour)} fill="rgba(255,69,0,0.10)" stroke={colors.brand} strokeWidth={sw * 1.4} />
+                  )
                 )}
                 {/* nodes */}
                 {mode === "points" &&
@@ -1022,6 +1086,13 @@ function PointsPanel(props: any) {
             <TextInput testID="fillet-input" value={fillet} onChangeText={setFillet} keyboardType="decimal-pad" style={styles.miniInput} />
             <Text style={styles.miniUnit}>mm</Text>
           </View>
+          <View style={styles.presetRow}>
+            {["0", "5", "10", "20"].map((v) => (
+              <Pressable key={v} testID={`fillet-${v}`} onPress={() => setFillet(v)} style={[styles.presetChip, fillet === v && styles.presetChipOn]}>
+                <Text style={[styles.presetText, fillet === v && styles.presetTextOn]}>{v}</Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
         <Pressable testID="apply-params" onPress={onApply} style={styles.applyBtn}>
           <Feather name="check" size={18} color={colors.onBrand} />
@@ -1212,6 +1283,11 @@ const styles = StyleSheet.create({
   miniInputWrap: { flexDirection: "row", alignItems: "center", borderWidth: BORDER, borderColor: colors.borderStrong },
   miniInput: { flex: 1, fontFamily: fonts.mono, fontSize: fontSize.base, color: colors.onSurface, paddingHorizontal: space.sm, paddingVertical: 8 },
   miniUnit: { fontFamily: fonts.monoBold, fontSize: 11, color: colors.onSurfaceTertiary, paddingHorizontal: 6 },
+  presetRow: { flexDirection: "row", gap: 4, marginTop: 4 },
+  presetChip: { flex: 1, alignItems: "center", paddingVertical: 4, borderWidth: BORDER, borderColor: colors.borderStrong, backgroundColor: colors.surface },
+  presetChipOn: { backgroundColor: colors.brand, borderColor: colors.brand },
+  presetText: { fontFamily: fonts.monoMed, fontSize: 11, color: colors.onSurface },
+  presetTextOn: { color: colors.onBrand },
   applyBtn: {
     flexDirection: "row", gap: 6, alignItems: "center", backgroundColor: colors.brand,
     borderWidth: BORDER, borderColor: colors.borderStrong, paddingHorizontal: space.md, paddingVertical: 10,

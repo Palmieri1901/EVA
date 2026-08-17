@@ -231,6 +231,50 @@ def _order_quad(pts: np.ndarray) -> np.ndarray:
     return np.array([tl, tr, br, bl], dtype=np.float32)
 
 
+def detect_tape_corner_dots(bgr: np.ndarray, color: str) -> Optional[np.ndarray]:
+    """Detect WHITE marker-pen dots drawn on the coloured tape (e.g. white marks
+    on blue tape) and return the 4 corner dots (TL,TR,BR,BL px). These give a more
+    precise reference quad than the raw tape corners. Returns None if 4 sensible
+    corner dots cannot be found."""
+    H, W = bgr.shape[:2]
+    band = tape_mask(bgr, color)
+    # close the band so the white marks (holes in the colour) become part of it
+    k = max(9, int(round(min(H, W) * 0.03)) | 1)
+    region = cv2.morphologyEx(band, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8), iterations=2)
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    white = cv2.inRange(hsv, np.array([0, 0, 180]), np.array([180, 60, 255]))
+    marks = cv2.bitwise_and(white, region)
+    marks = cv2.morphologyEx(marks, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    cnts, _ = cv2.findContours(marks, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    area = float(H * W)
+    pts = []
+    for c in cnts:
+        a = cv2.contourArea(c)
+        if a < area * 2e-5 or a > area * 0.02:
+            continue
+        (cx, cy), r = cv2.minEnclosingCircle(c)
+        if r <= 0 or a / (math.pi * r * r) < 0.5:
+            continue
+        pts.append((cx, cy))
+    if len(pts) < 4:
+        return None
+    arr = np.array(pts, dtype=np.float32)
+    s = arr[:, 0] + arr[:, 1]
+    d = arr[:, 0] - arr[:, 1]
+    corners = np.array([
+        arr[int(np.argmin(s))],  # TL
+        arr[int(np.argmax(d))],  # TR
+        arr[int(np.argmax(s))],  # BR
+        arr[int(np.argmin(d))],  # BL
+    ], dtype=np.float32)
+    # reject if two picked corners collapse to the same dot (degenerate)
+    for i in range(4):
+        for j in range(i + 1, 4):
+            if np.hypot(*(corners[i] - corners[j])) < min(H, W) * 0.05:
+                return None
+    return _order_quad(corners)
+
+
 def detect_tape_quad(bgr: np.ndarray, color: str) -> Optional[np.ndarray]:
     """Return the 4 outer corners (TL,TR,BR,BL px) of the tape band for `color`,
     or None if the tape outline cannot be reduced to a sensible quadrilateral."""

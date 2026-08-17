@@ -26,22 +26,64 @@ def _ring(points: Poly) -> Polygon:
     return Polygon(points)
 
 
-def apply_fillet(points: Poly, radius_mm: float) -> Poly:
+def apply_fillet(points: Poly, radius_mm: float, seg: int = 10) -> Poly:
+    """Round each corner of the polygon with a circular arc of the given radius,
+    keeping the straight edges in place (true CAD fillet). The radius is clamped
+    per-corner so arcs never overrun the adjacent edges."""
     if radius_mm <= 0 or len(points) < 3:
         return points
-    poly = _ring(points)
-    if not poly.is_valid or poly.is_empty:
-        poly = poly.buffer(0)
-    try:
-        rounded = poly.buffer(radius_mm, join_style=1).buffer(-radius_mm, join_style=1)
-        if rounded.is_empty:
-            return points
-        if rounded.geom_type == "MultiPolygon":
-            rounded = max(rounded.geoms, key=lambda g: g.area)
-        return [[float(x), float(y)] for x, y in rounded.exterior.coords]
-    except Exception as e:  # noqa: BLE001
-        logger.warning("fillet failed: %s", e)
+    pts = [[float(p[0]), float(p[1])] for p in points]
+    # drop a duplicated closing point if present
+    if len(pts) >= 2 and abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][1] - pts[-1][1]) < 1e-6:
+        pts = pts[:-1]
+    n = len(pts)
+    if n < 3:
         return points
+    out: Poly = []
+    for i in range(n):
+        prev = pts[(i - 1) % n]
+        cur = pts[i]
+        nxt = pts[(i + 1) % n]
+        v1x, v1y = prev[0] - cur[0], prev[1] - cur[1]
+        v2x, v2y = nxt[0] - cur[0], nxt[1] - cur[1]
+        l1 = math.hypot(v1x, v1y)
+        l2 = math.hypot(v2x, v2y)
+        if l1 < 1e-6 or l2 < 1e-6:
+            out.append([cur[0], cur[1]])
+            continue
+        u1 = (v1x / l1, v1y / l1)
+        u2 = (v2x / l2, v2y / l2)
+        dot = max(-1.0, min(1.0, u1[0] * u2[0] + u1[1] * u2[1]))
+        theta = math.acos(dot)  # interior angle at the vertex
+        if theta < 1e-3 or theta > math.pi - 1e-3:
+            out.append([cur[0], cur[1]])
+            continue
+        half = theta / 2.0
+        t = radius_mm / math.tan(half)
+        tmax = min(l1, l2) * 0.5
+        t = min(t, tmax)
+        rr = t * math.tan(half)
+        p1 = (cur[0] + u1[0] * t, cur[1] + u1[1] * t)
+        p2 = (cur[0] + u2[0] * t, cur[1] + u2[1] * t)
+        bx, by = u1[0] + u2[0], u1[1] + u2[1]
+        bl = math.hypot(bx, by)
+        if bl < 1e-6:
+            out.append([cur[0], cur[1]])
+            continue
+        bx, by = bx / bl, by / bl
+        center = (cur[0] + bx * (rr / math.sin(half)), cur[1] + by * (rr / math.sin(half)))
+        a1 = math.atan2(p1[1] - center[1], p1[0] - center[0])
+        a2 = math.atan2(p2[1] - center[1], p2[0] - center[0])
+        da = a2 - a1
+        while da <= -math.pi:
+            da += 2 * math.pi
+        while da > math.pi:
+            da -= 2 * math.pi
+        for k in range(seg + 1):
+            a = a1 + da * (k / seg)
+            out.append([center[0] + rr * math.cos(a), center[1] + rr * math.sin(a)])
+    out.append([out[0][0], out[0][1]])
+    return out
 
 
 def apply_offset(points: Poly, offset_mm: float) -> Poly:
