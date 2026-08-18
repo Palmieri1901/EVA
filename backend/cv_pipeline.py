@@ -181,8 +181,21 @@ def tape_mask(rectified_bgr: np.ndarray, background_mode: str) -> np.ndarray:
         m1 = cv2.inRange(hsv, np.array([0, 70, 50]), np.array([10, 255, 255]))
         m2 = cv2.inRange(hsv, np.array([170, 70, 50]), np.array([180, 255, 255]))
         mask = m1 | m2
-    else:  # white_on_dark / bianco -> bright/white tape
-        mask = cv2.inRange(hsv, np.array([0, 0, 165]), np.array([180, 70, 255]))
+    else:  # white_on_dark / bianco -> bright, low-saturation (white) tape
+        # On a dark background the tape is the brightest region. Combine a fixed
+        # bright threshold with an Otsu split of the V channel, but if Otsu ends up
+        # selecting a large part of the frame (i.e. the scene is NOT dark) fall back
+        # to the fixed threshold only, to avoid grabbing bright backgrounds.
+        v = hsv[:, :, 2]
+        s = hsv[:, :, 1]
+        m_fixed = cv2.inRange(hsv, np.array([0, 0, 150]), np.array([180, 90, 255]))
+        _, m_otsu = cv2.threshold(cv2.GaussianBlur(v, (5, 5), 0), 0, 255,
+                                  cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        if np.count_nonzero(m_otsu) > 0.55 * m_otsu.size:
+            mask = m_fixed
+        else:
+            mask = cv2.bitwise_or(m_fixed, m_otsu)
+        mask[s > 110] = 0  # drop bright but coloured areas
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8), iterations=2)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     return mask
@@ -199,7 +212,7 @@ def _tape_score(bgr: np.ndarray, color: str) -> float:
     area = float(H * W)
     mask = tape_mask(bgr, color)
     frac = float(np.count_nonzero(mask)) / area
-    if frac < 0.01 or frac > 0.6:
+    if frac < 0.01 or frac > 0.75:
         return 0.0
     cnt = extract_contour(mask, "inner")
     if cnt is None or len(cnt) < 4:

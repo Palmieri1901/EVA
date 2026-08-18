@@ -30,6 +30,19 @@ FastAPI condiviso; la Computer Vision gira sul backend.
    layer INCISIONE (ENGRAVE) / TAGLIO (CUT).
 6. Export DXF in mm con layer distinti; progetti salvati, storico, riesportazione.
 
+## Fix (2026-08-17f) — Nastro BIANCO su fondo SCURO non rilevato senza marker
+- Il rilevamento "bianco"/white_on_dark usava una soglia fissa (V>165) che con luce non uniforme si
+  spezzava, e l'AUTO scartava il bianco quando la frazione superava il cap. Inoltre, scegliendo "BIANCO"
+  esplicitamente, il codice ripiegava su auto e falliva.
+- FIX (`cv_pipeline.tape_mask` bianco): soglia adattiva = luminosità fissa (V>=150, bassa saturazione)
+  UNIONE Otsu sul canale V, con guardia anti-sovra-selezione (se Otsu prende >55% del frame usa solo la
+  soglia fissa) e rimozione dei pixel colorati (S>110). `_tape_score` cap alzato a 0.75.
+- FIX (`photogram._segment_tape`): se l'utente sceglie un colore specifico (es. BIANCO) viene
+  **provato per primo e rispettato**, con fallback ad AUTO solo se non produce un contorno valido.
+- FIX (`server._run_pipeline` ramo auto): il colore scelto (incl. white_on_dark) è ora rispettato senza
+  gate rigido. Verificato: fondo scuro texturizzato + nastro bianco con ombra → tape_detected True
+  (pref bianco/auto/white_on_dark); regressione nastro blu su bianco OK.
+
 ## Fix + Feature (2026-08-17e) — Diamante restituiva righe + Altezza diamante
 - BUG: il pattern "diamond" usava `_hatch(angle)` + `_hatch(-angle)`; con angolo 0 (default del
   modale RIEMPI) le due famiglie coincidevano → uscivano RIGHE invece di diamanti. Il preset

@@ -370,7 +370,14 @@ def _run_pipeline(img_bytes: bytes, project: dict) -> dict:
         # extract the mat outline it delimits. Always keep the photo visible.
         w, h = project["ref_width_mm"], project["ref_height_mm"]
         tape_pref = (project.get("tape_color") or project.get("background_mode") or "auto")
-        color = tape_pref if tape_pref not in ("auto", "", None) and cv._tape_score(bgr, tape_pref) > 0 else cv.best_tape_color(bgr)
+        pref = tape_pref.lower() if isinstance(tape_pref, str) else "auto"
+        if pref in ("auto", "", "blue_on_white", "white_on_dark"):
+            # legacy background modes are treated as hints, real choice via auto
+            color = cv.best_tape_color(bgr)
+            if color is None and pref == "white_on_dark":
+                color = "bianco"
+        else:
+            color = pref  # user picked a specific tape colour -> trust it
         quad = None
         used_dots = False
         if color:

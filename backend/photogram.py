@@ -134,29 +134,41 @@ def _provisional_rect(w_mm: float, h_mm: float) -> List[List[float]]:
 def _segment_tape(bgr: np.ndarray, background_mode: str = "blue_on_white",
                   cut_side: str = "inner") -> Optional[np.ndarray]:
     """Detect the coloured masking tape delimiting the mat and return the mat
-    outline (Nx2 px). When the colour is 'auto' (or unknown) the best-enclosing
-    colour is auto-selected; otherwise the given colour is used with a fallback
-    to auto. Returns None if no usable tape band is found (caller uses GrabCut)."""
+    outline (Nx2 px). When a specific colour is requested it is trusted first
+    (falling back to auto only if it yields no valid outline); 'auto' picks the
+    best-enclosing colour. Returns None if no usable tape band is found."""
     H, W = bgr.shape[:2]
     area = float(H * W)
+
+    def _try(color: str):
+        mask = cv.tape_mask(bgr, color)
+        frac = float(np.count_nonzero(mask)) / area
+        if frac < 0.01 or frac > 0.85:
+            return None
+        cnt = cv.extract_contour(mask, cut_side)
+        if cnt is None or len(cnt) < 4:
+            return None
+        a = cv2.contourArea(cnt.astype(np.float32)) / area
+        if a < 0.05 or a > 0.97:
+            return None
+        peri = cv2.arcLength(cnt.astype(np.float32), True)
+        return cv2.approxPolyDP(cnt.astype(np.float32), 0.003 * peri, True).reshape(-1, 2).astype(np.float32)
+
     mode = (background_mode or "auto").lower()
+    candidates = []
     if mode in ("auto", ""):
-        color = cv.best_tape_color(bgr)
+        candidates = [cv.best_tape_color(bgr)]
     else:
-        color = mode
-        if cv._tape_score(bgr, color) <= 0:
-            color = cv.best_tape_color(bgr)
-    if color is None:
-        return None
-    mask = cv.tape_mask(bgr, color)
-    cnt = cv.extract_contour(mask, cut_side)
-    if cnt is None or len(cnt) < 4:
-        return None
-    a = cv2.contourArea(cnt.astype(np.float32)) / area
-    if a < 0.05 or a > 0.97:
-        return None
-    peri = cv2.arcLength(cnt.astype(np.float32), True)
-    return cv2.approxPolyDP(cnt.astype(np.float32), 0.003 * peri, True).reshape(-1, 2).astype(np.float32)
+        candidates = [mode, cv.best_tape_color(bgr)]
+    seen = set()
+    for color in candidates:
+        if not color or color in seen:
+            continue
+        seen.add(color)
+        res = _try(color)
+        if res is not None:
+            return res
+    return None
 
 
 # --------------------------------------------------------------------------
