@@ -34,7 +34,9 @@ def render_assembly(nested: dict, meta: dict) -> bytes:
     ax.text(PW / 2, 28, "LAYOUT PEZZI ASSEMBLATI — FOGLIO EVA", ha="center", va="center", fontsize=8)
     ax.text(14, 34, meta.get("date", ""), ha="left", va="center", fontsize=7)
     n = nested.get("count", 0)
-    ax.text(PW - 14, 34, f"{n} pezzi · {meta.get('total_area_m2', 0):.2f} mq",
+    util = nested.get("utilization", 0.0) * 100.0
+    uh = nested.get("used_h", 0.0)
+    ax.text(PW - 14, 34, f"{n} pezzi · {meta.get('total_area_m2', 0):.2f} mq · resa {util:.0f}% · lungh. usata {int(uh)} mm",
             ha="right", va="center", fontsize=7, fontweight="bold")
 
     sheet_w = nested.get("sheet_w", 1200.0)

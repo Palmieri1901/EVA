@@ -5,6 +5,17 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06i) — Nesting AVANZATO sul foglio EVA 900×2400 (meno spreco)
+- `nesting.py` riscritto: da shelf/first-fit a **MaxRects (Best-Short-Side-Fit)** con **rotazione 90°**
+  opzionale, scoring che minimizza l'altezza usata (bottom-left) in un bin a larghezza fissa 900mm e
+  altezza virtualmente illimitata (tutti i pezzi vengono piazzati). Gap 20mm tra parti mantenuto.
+  Ruota i pezzi (e la loro geometria cut/engrave) quando conviene; affianca i pezzi stretti su più
+  colonne. Ritorna `utilization` (resa) e `part_area_mm2`. Firma invariata → usato sia da assembly
+  PDF sia da nested-DXF senza altre modifiche.
+- `assembly.py`: header ora mostra "resa X% · lungh. usata N mm".
+- Verificato: 6×(400×300) → 2 colonne, resa 85%; boat "630" assembly PDF resa 75% lungh. 1037mm;
+  nested-DXF 200 OK. Nessun pezzo sfora la larghezza 900mm.
+
 ## Feature (2026-06h) — Rendering barca: "APPLICA COLORE RIGA A TUTTI"
 - `render/[id].tsx`: pulsante sotto la palette RIGA/SCANALATURA (`grv-apply-all`) che imposta `_grv`
   del pezzo selezionato su TUTTI i pezzi in un tocco, con toast di conferma. Verificato: "Blu" → tutte
