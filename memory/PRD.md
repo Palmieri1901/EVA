@@ -5,6 +5,12 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06f) — Rendering barca: controlli ZOOM +/- e PAN con frecce
+- `render/[id].tsx`: aggiunti `zoomView(factor)` (zoom attorno al centro tela agendo su `fit.s`
+  + ricalcolo `ox/oy`) e `panView(dx,dy)` (sposta `fit.ox/oy` di PAN_STEP=40px). UI: colonna in alto
+  a destra con +/−/adatta e d-pad frecce (su/giù/sx/dx) in basso a destra. Il drag/rotazione dei pezzi
+  continua a funzionare (hit-test usa `fitRef`). Verificato: zoom, pan e reset vista OK.
+
 ## Feature (2026-06e) — Editor: la texture si ri-taglia attorno agli elementi inseriti DOPO
 - BUG (utente): se un pezzo aveva GIÀ la texture e poi si inseriva una linea/cerchio/logo, la
   texture non lasciava lo spazio pulito + bordatura attorno al nuovo elemento (l'exclude era

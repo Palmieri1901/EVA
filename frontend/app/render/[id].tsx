@@ -89,6 +89,7 @@ export default function BoatRender() {
   const [saving, setSaving] = useState(false);
   const [cw, setCw] = useState(0);
   const CH = 420;
+  const PAN_STEP = 40; // px per arrow tap
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -233,6 +234,19 @@ export default function BoatRender() {
   const fitView = () => {
     if (cw) { setFit(computeFit(pieces, cw)); Haptics.selectionAsync().catch(() => {}); }
   };
+  const zoomView = (factor: number) => {
+    if (!fit || !cw) return;
+    const s2 = Math.max(fit.s * factor, 0.0001);
+    const wx = (cw / 2 - fit.ox) / fit.s + fit.minx;
+    const wy = (CH / 2 - fit.oy) / fit.s + fit.miny;
+    setFit({ ...fit, s: s2, ox: cw / 2 - (wx - fit.minx) * s2, oy: CH / 2 - (wy - fit.miny) * s2 });
+    Haptics.selectionAsync().catch(() => {});
+  };
+  const panView = (dx: number, dy: number) => {
+    if (!fit) return;
+    setFit({ ...fit, ox: fit.ox + dx, oy: fit.oy + dy });
+    Haptics.selectionAsync().catch(() => {});
+  };
 
   const doSave = async () => {
     setSaving(true);
@@ -317,9 +331,31 @@ export default function BoatRender() {
                 })}
               </Svg>
             )}
-            <Pressable testID="fit-view" onPress={fitView} style={styles.fitBtn} hitSlop={8}>
-              <Feather name="maximize" size={18} color={colors.onSurface} />
-            </Pressable>
+            <View style={styles.zoomCol} pointerEvents="box-none">
+              <Pressable testID="zoom-in" onPress={() => zoomView(1.25)} style={styles.ctrlBtn} hitSlop={6}>
+                <Feather name="plus" size={18} color={colors.onSurface} />
+              </Pressable>
+              <Pressable testID="zoom-out" onPress={() => zoomView(0.8)} style={styles.ctrlBtn} hitSlop={6}>
+                <Feather name="minus" size={18} color={colors.onSurface} />
+              </Pressable>
+              <Pressable testID="fit-view" onPress={fitView} style={styles.ctrlBtn} hitSlop={6}>
+                <Feather name="maximize" size={16} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            <View style={styles.dpad} pointerEvents="box-none">
+              <Pressable testID="pan-up" onPress={() => panView(0, -PAN_STEP)} style={[styles.ctrlBtn, styles.dUp]} hitSlop={4}>
+                <Feather name="chevron-up" size={18} color={colors.onSurface} />
+              </Pressable>
+              <Pressable testID="pan-left" onPress={() => panView(-PAN_STEP, 0)} style={[styles.ctrlBtn, styles.dLeft]} hitSlop={4}>
+                <Feather name="chevron-left" size={18} color={colors.onSurface} />
+              </Pressable>
+              <Pressable testID="pan-right" onPress={() => panView(PAN_STEP, 0)} style={[styles.ctrlBtn, styles.dRight]} hitSlop={4}>
+                <Feather name="chevron-right" size={18} color={colors.onSurface} />
+              </Pressable>
+              <Pressable testID="pan-down" onPress={() => panView(0, PAN_STEP)} style={[styles.ctrlBtn, styles.dDown]} hitSlop={4}>
+                <Feather name="chevron-down" size={18} color={colors.onSurface} />
+              </Pressable>
+            </View>
             {hasOverlap && (
               <View style={styles.warnBanner} pointerEvents="none">
                 <Feather name="alert-triangle" size={14} color="#fff" />
@@ -392,7 +428,13 @@ const styles = StyleSheet.create({
   empty: { fontFamily: fonts.mono, fontSize: fontSize.base, color: colors.onSurfaceSecondary, textAlign: "center" },
   canvas: { height: 420, backgroundColor: colors.surfaceSecondary, borderBottomWidth: BORDER, borderBottomColor: colors.borderStrong },
   canvasHint: { position: "absolute", bottom: 6, left: 0, right: 0, textAlign: "center", fontFamily: fonts.mono, fontSize: 11, color: colors.onSurfaceTertiary },
-  fitBtn: { position: "absolute", top: space.sm, right: space.sm, width: 40, height: 40, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: BORDER, borderColor: colors.borderStrong },
+  ctrlBtn: { width: 38, height: 38, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: BORDER, borderColor: colors.borderStrong },
+  zoomCol: { position: "absolute", top: space.sm, right: space.sm, gap: space.xs },
+  dpad: { position: "absolute", right: space.sm, bottom: space.lg, width: 118, height: 118 },
+  dUp: { position: "absolute", top: 0, left: 40 },
+  dDown: { position: "absolute", bottom: 0, left: 40 },
+  dLeft: { position: "absolute", left: 0, top: 40 },
+  dRight: { position: "absolute", right: 0, top: 40 },
   warnBanner: { position: "absolute", top: space.sm, left: space.sm, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#D22B2B", paddingHorizontal: space.sm, paddingVertical: 6 },
   warnTxt: { fontFamily: fonts.monoMed, fontSize: 11, color: "#fff", letterSpacing: 1 },
   panel: { flex: 1 },
