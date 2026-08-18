@@ -24,6 +24,7 @@ import * as Haptics from "expo-haptics";
 
 import { absUrl, api, BoatT, ProjectT } from "@/src/api";
 import { Btn } from "@/src/components/ui";
+import { VectorPreview } from "@/src/components/VectorPreview";
 import { useToast } from "@/src/components/toast";
 import { useMachine } from "@/src/machine";
 import { BORDER, colors, fonts, fontSize, space } from "@/src/theme";
@@ -53,6 +54,7 @@ export default function Vectorize() {
   const [thr, setThr] = useState(128);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<VecResult | null>(null);
+  const [previewMode, setPreviewMode] = useState<"vector" | "image">("vector");
 
   // ROI selection (in display px) + image aspect
   const [aspect, setAspect] = useState(1);
@@ -173,6 +175,7 @@ export default function Vectorize() {
         threshold: autoThr ? -1 : thr,
       });
       setResult(r);
+      setPreviewMode("vector");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       toast(`${r.count} forme · ${r.width_mm}×${r.height_mm} mm`, "success");
     } catch (e: any) {
@@ -265,8 +268,10 @@ export default function Vectorize() {
             layoutRef.current = l;
           }}
         >
-          {result?.preview_url ? (
+          {result?.preview_url && previewMode === "image" ? (
             <Image source={{ uri: absUrl(result.preview_url) }} style={{ width: layout.w, height: layout.h }} resizeMode="contain" />
+          ) : result && previewMode === "vector" ? (
+            <VectorPreview polylines={result.polylines} width={layout.w} height={layout.h} />
           ) : imageUri ? (
             <View style={{ width: layout.w, height: layout.h }}>
               <Image source={{ uri: imageUri }} style={{ width: layout.w, height: layout.h }} resizeMode="contain" />
@@ -288,6 +293,26 @@ export default function Vectorize() {
             </View>
           )}
         </View>
+
+        {result && (
+          <View style={styles.viewToggle}>
+            {([["vector", "VETTORE"], ["image", "IMMAGINE"]] as const).map(([v, l]) => (
+              <Pressable
+                key={v}
+                testID={`preview-${v}`}
+                style={[styles.viewToggleBtn, previewMode === v && styles.toggleOn]}
+                onPress={() => { Haptics.selectionAsync().catch(() => {}); setPreviewMode(v); }}
+              >
+                <Feather
+                  name={v === "vector" ? "git-merge" : "image"}
+                  size={14}
+                  color={previewMode === v ? colors.onSurfaceInverse : colors.onSurface}
+                />
+                <Text style={[styles.toggleText, previewMode === v && styles.toggleTextOn]}>{l}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
 
         {imageUri && !result && (
           <View style={styles.roiBar}>
@@ -468,6 +493,8 @@ const styles = StyleSheet.create({
   roi: { position: "absolute", borderWidth: 2, borderColor: colors.brand, backgroundColor: "rgba(184,74,0,0.12)" },
   roiHandle: { position: "absolute", right: -9, bottom: -9, width: 18, height: 18, backgroundColor: colors.brand, borderWidth: 2, borderColor: colors.surface },
   roiBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: space.sm, marginBottom: space.md },
+  viewToggle: { flexDirection: "row", gap: space.sm, marginTop: space.sm, marginBottom: space.md },
+  viewToggleBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.xs, borderWidth: BORDER, borderColor: colors.borderStrong, paddingVertical: 10, backgroundColor: colors.surface },
   roiHint: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, flex: 1 },
   roiClear: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: BORDER, borderColor: colors.borderStrong, paddingHorizontal: space.sm, paddingVertical: 6 },
   roiClearText: { fontFamily: fonts.monoMed, fontSize: 11, color: colors.onSurface },

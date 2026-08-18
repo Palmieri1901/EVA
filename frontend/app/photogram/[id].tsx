@@ -16,7 +16,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import Svg, { Line as SvgLine, Polygon } from "react-native-svg";
+import Svg, { Circle, Line as SvgLine, Polygon } from "react-native-svg";
 
 import { absUrl, api, PgPhotoT } from "@/src/api";
 import { Btn } from "@/src/components/ui";
@@ -39,8 +39,11 @@ export default function Photogram() {
 
   const [phase, setPhase] = useState<"capture" | "reference">("capture");
   const [mosaic, setMosaic] = useState<{ url: string; w: number; h: number } | null>(null);
-  const [refType, setRefType] = useState<"rect" | "line">("rect");
+  const [refType, setRefType] = useState<"rect" | "line" | "dots">("rect");
   const [points, setPoints] = useState<Pt[]>([]);
+  const [dots, setDots] = useState<Pt[]>([]);
+  const [scaleMode, setScaleMode] = useState(false);
+  const [detectingDots, setDetectingDots] = useState(false);
   const [dispW, setDispW] = useState(0);
   const [widthMm, setWidthMm] = useState("");
   const [heightMm, setHeightMm] = useState("");
@@ -49,7 +52,6 @@ export default function Photogram() {
   const [arucoing, setArucoing] = useState(false);
 
   const need = refType === "rect" ? 4 : 2;
-
   const load = useCallback(async () => {
     if (!id) return;
     try {
@@ -188,6 +190,17 @@ export default function Photogram() {
     const mx = (lx / dispW) * mosaic.w;
     const my = (ly / dispH) * mosaic.h;
     if (!isFinite(mx) || !isFinite(my)) return;
+    if (refType === "dots" && !scaleMode) {
+      // outline-dot editing: tap near a dot removes it, else add a new one
+      const thresh = mosaic.w * 0.03;
+      setDots((prev) => {
+        const idx = prev.findIndex((d) => Math.hypot(d.x - mx, d.y - my) < thresh);
+        if (idx >= 0) return prev.filter((_, i) => i !== idx);
+        return [...prev, { x: mx, y: my }];
+      });
+      Haptics.selectionAsync().catch(() => {});
+      return;
+    }
     setPoints((prev) => {
       const next = prev.length >= need ? [] : [...prev];
       next.push({ x: mx, y: my });
@@ -235,14 +248,53 @@ export default function Photogram() {
     []
   );
 
+  const doDetectDots = async () => {
+    if (!id) return;
+    setDetectingDots(true);
+    try {
+      const r = await api.pgDetectDots(id);
+      const found = (r.dots || []).map((p) => ({ x: p[0], y: p[1] }));
+      setDots(found);
+      toast(
+        found.length
+          ? `${found.length} punti rilevati. Aggiungi/rimuovi toccando, poi imposta la scala.`
+          : "Nessun punto rilevato: toccali tu sulla foto.",
+        found.length ? "success" : "info"
+      );
+    } catch (e: any) {
+      toast(e.message || "Rilevamento punti fallito", "error");
+    } finally {
+      setDetectingDots(false);
+    }
+  };
+
   const doExtract = async () => {
     if (!id) return;
-    if (points.length !== need) {
+    let reference: any;
+    if (refType === "dots") {
+      if (dots.length < 3) {
+        toast("Servono almeno 3 punti dell'outline (tocca la foto o usa RILEVA)", "error");
+        return;
+      }
+      if (points.length !== 2) {
+        toast("Attiva SCALA e tocca 2 punti a distanza nota", "error");
+        return;
+      }
+      const l = parseFloat(lengthMm);
+      if (!l || l <= 0) {
+        toast("Inserisci la distanza reale tra i 2 punti di scala (mm)", "error");
+        return;
+      }
+      reference = {
+        type: "dots",
+        points: points.map((p) => [p.x, p.y]),
+        length_mm: l,
+        dots: dots.map((p) => [p.x, p.y]),
+      };
+    } else if (points.length !== need) {
       toast(`Tocca ${need} punti sul riferimento`, "error");
       return;
-    }
-    let reference: any;
-    if (refType === "rect") {
+    } else if (refType === "rect") {
       const w = parseFloat(widthMm);
       const h = parseFloat(heightMm);
       if (!w || !h || w <= 0 || h <= 0) {
@@ -387,24 +439,49 @@ export default function Photogram() {
           <Text style={styles.infoText}>
             {refType === "rect"
               ? "Tocca i 4 PUNTI D'ANGOLO di riferimento (i puntini/angoli), poi TRASCINALI per posizionarli con precisione. Inserisci larghezza e altezza reali (interasse) in mm: raddrizzo la prospettiva e il contorno seguirà il NASTRO."
-              : "Tocca i 2 estremi di una distanza nota (es. tacche del righello), poi TRASCINALI per regolarli. Inserisci la lunghezza reale in mm. Il contorno seguirà il NASTRO."}
+              : refType === "line"
+              ? "Tocca i 2 estremi di una distanza nota (es. tacche del righello), poi TRASCINALI per regolarli. Inserisci la lunghezza reale in mm. Il contorno seguirà il NASTRO."
+              : "PUNTI NERI (forme irregolari): premi RILEVA PUNTI (o tocca la foto per aggiungerli / tocca un punto per rimuoverlo). Poi premi IMPOSTA SCALA e tocca 2 punti a distanza nota inserendo i mm. Collego i punti in automatico."}
           </Text>
         </View>
 
         <View style={styles.segRow}>
-          {(["rect", "line"] as const).map((t) => (
+          {(["rect", "line", "dots"] as const).map((t) => (
             <Pressable
               key={t}
               testID={`pg-reftype-${t}`}
               style={[styles.segBtn, refType === t && styles.segOn]}
-              onPress={() => { setRefType(t); setPoints([]); }}
+              onPress={() => { setRefType(t); setPoints([]); setScaleMode(false); }}
             >
               <Text style={[styles.segText, refType === t && styles.segTextOn]}>
-                {t === "rect" ? "RETTANGOLO" : "LINEA"}
+                {t === "rect" ? "RETTANGOLO" : t === "line" ? "LINEA" : "PUNTI NERI"}
               </Text>
             </Pressable>
           ))}
         </View>
+
+        {refType === "dots" && (
+          <View style={styles.dotsBar}>
+            <Btn
+              testID="pg-detect-dots"
+              label={detectingDots ? "RILEVO..." : "RILEVA PUNTI"}
+              variant="outline"
+              loading={detectingDots}
+              icon={<Feather name="target" size={16} color={colors.onSurface} />}
+              onPress={doDetectDots}
+            />
+            <Pressable
+              testID="pg-scale-toggle"
+              onPress={() => setScaleMode((s) => !s)}
+              style={[styles.scaleBtn, scaleMode && styles.scaleBtnOn]}
+            >
+              <Feather name="maximize-2" size={14} color={scaleMode ? colors.onBrand : colors.onSurface} />
+              <Text style={[styles.scaleText, scaleMode && styles.scaleTextOn]}>
+                {scaleMode ? "SCALA: tocca 2 punti" : "IMPOSTA SCALA"}
+              </Text>
+            </Pressable>
+          </View>
+        )}
 
         <View
           style={styles.canvas}
@@ -434,9 +511,20 @@ export default function Photogram() {
                       stroke={colors.brand} strokeWidth={3}
                     />
                   )}
+                  {refType === "dots" && dots.map((p, i) => {
+                    const d = toDisp(p);
+                    return <Circle key={`o${i}`} cx={d.x} cy={d.y} r={7} fill="rgba(255,69,0,0.35)" stroke={colors.brand} strokeWidth={2} />;
+                  })}
+                  {refType === "dots" && points.length === 2 && (
+                    <SvgLine
+                      x1={toDisp(points[0]).x} y1={toDisp(points[0]).y}
+                      x2={toDisp(points[1]).x} y2={toDisp(points[1]).y}
+                      stroke="#0A84FF" strokeWidth={3} strokeDasharray="8,6"
+                    />
+                  )}
                 </Svg>
               </Pressable>
-              {points.map((p, i) => {
+              {(refType !== "dots" || scaleMode) && points.map((p, i) => {
                 const d = toDisp(p);
                 return (
                   <View
@@ -456,8 +544,12 @@ export default function Photogram() {
         </View>
 
         <View style={styles.ptRow}>
-          <Text style={styles.ptText}>Punti: {points.length}/{need}</Text>
-          <Pressable testID="pg-reset-pts" onPress={() => setPoints([])} hitSlop={8} style={styles.resetBtn}>
+          <Text style={styles.ptText}>
+            {refType === "dots"
+              ? `Outline: ${dots.length} punti · Scala: ${points.length}/2`
+              : `Punti: ${points.length}/${need}`}
+          </Text>
+          <Pressable testID="pg-reset-pts" onPress={() => { setPoints([]); if (refType === "dots") setDots([]); }} hitSlop={8} style={styles.resetBtn}>
             <Feather name="refresh-ccw" size={14} color={colors.onSurface} />
             <Text style={styles.resetText}>AZZERA PUNTI</Text>
           </Pressable>
@@ -477,7 +569,7 @@ export default function Photogram() {
           </View>
         ) : (
           <View>
-            <Text style={styles.label}>Lunghezza (mm)</Text>
+            <Text style={styles.label}>{refType === "dots" ? "Distanza tra i 2 punti scala (mm)" : "Lunghezza (mm)"}</Text>
             <TextInput testID="pg-length" value={lengthMm} onChangeText={setLengthMm} keyboardType="decimal-pad" placeholder="es. 300" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} />
           </View>
         )}
@@ -548,7 +640,15 @@ const styles = StyleSheet.create({
   sheetText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface },
   linkText: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.brand, textDecorationLine: "underline" },
   segRow: { flexDirection: "row", gap: space.sm, marginBottom: space.md },
-  segBtn: {
+  dotsBar: { gap: space.sm, marginBottom: space.md },
+  scaleBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    borderWidth: BORDER, borderColor: colors.borderStrong, backgroundColor: colors.surface,
+    paddingVertical: 10,
+  },
+  scaleBtnOn: { backgroundColor: colors.brand, borderColor: colors.brand },
+  scaleText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface, letterSpacing: 0.5 },
+  scaleTextOn: { color: colors.onBrand },  segBtn: {
     flex: 1, alignItems: "center", borderWidth: BORDER, borderColor: colors.borderStrong,
     paddingVertical: 10, backgroundColor: colors.surface,
   },

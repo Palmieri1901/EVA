@@ -768,6 +768,26 @@ async def pg_extract(project_id: str, body: dict):
     return s
 
 
+def _run_detect_dots(mosaic_bytes: bytes) -> list:
+    mosaic = cv.imdecode_exif(mosaic_bytes)
+    if mosaic is None:
+        raise ValueError("Mosaico non decodificabile")
+    return cv.detect_black_dots(mosaic)
+
+
+@api_router.post("/projects/{project_id}/photogram/detect-dots")
+async def pg_detect_dots(project_id: str):
+    doc = await get_project_doc(project_id)
+    mpath = doc.get("photogram_mosaic_path")
+    if not mpath:
+        raise HTTPException(status_code=400, detail="Prima unisci le foto")
+    mosaic_bytes, _ = await run_in_threadpool(store.get_object, mpath)
+    dots = await run_in_threadpool(_run_detect_dots, mosaic_bytes)
+    return {"dots": dots, "w": doc.get("photogram_mosaic_w"), "h": doc.get("photogram_mosaic_h")}
+
+
+
+
 def _run_pg_aruco(imgs_bytes: list, marker_mm: float) -> dict:
     imgs = []
     for b in imgs_bytes:

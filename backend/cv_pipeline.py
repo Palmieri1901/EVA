@@ -244,6 +244,95 @@ def _order_quad(pts: np.ndarray) -> np.ndarray:
     return np.array([tl, tr, br, bl], dtype=np.float32)
 
 
+def detect_black_dots(bgr: np.ndarray) -> list:
+    """Detect dark, roundish marker dots (drawn with a black pen on tape/surface)
+    and return their centres as [x, y] px. Uses an adaptive dark-blob threshold so
+    it copes with low-contrast backgrounds (e.g. beige tape on wood)."""
+    H, W = bgr.shape[:2]
+    area = float(H * W)
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    bs = max(21, (int(min(H, W) * 0.06) | 1))  # odd block size ~6% of the short side
+    th = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                               cv2.THRESH_BINARY_INV, bs, 12)
+    th = cv2.morphologyEx(th, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    th = cv2.morphologyEx(th, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    cnts, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    dots = []
+    for c in cnts:
+        a = cv2.contourArea(c)
+        if a < area * 1.0e-4 or a > area * 6e-3:  # ignore tiny specks (wood knots)
+            continue
+        (cx, cy), r = cv2.minEnclosingCircle(c)
+        if r <= 0:
+            continue
+        circ = a / (math.pi * r * r)
+        if circ < 0.55:
+            continue
+        # light local-contrast gate: dot should be at least a little darker than
+        # the annulus around it (drops flat wood-grain blobs that aren't marks).
+        ri = int(r)
+        x0, y0 = int(max(0, cx - ri)), int(max(0, cy - ri))
+        x1, y1 = int(min(W, cx + ri + 1)), int(min(H, cy + ri + 1))
+        inner = gray[y0:y1, x0:x1]
+        rr = int(r * 2.6)
+        X0, Y0 = int(max(0, cx - rr)), int(max(0, cy - rr))
+        X1, Y1 = int(min(W, cx + rr + 1)), int(min(H, cy + rr + 1))
+        ring = gray[Y0:Y1, X0:X1]
+        if inner.size == 0 or ring.size == 0:
+            continue
+        if float(ring.mean()) - float(inner.mean()) < 8:
+            continue
+        dots.append((float(cx), float(cy), a))
+    # de-duplicate near-coincident detections, keep the larger blob
+    dots.sort(key=lambda d: -d[2])
+    kept = []
+    min_sep = min(H, W) * 0.02
+    for cx, cy, a in dots:
+        if all(math.hypot(cx - k[0], cy - k[1]) > min_sep for k in kept):
+            kept.append((cx, cy, a))
+    return [[cx, cy] for cx, cy, _ in kept]
+
+
+def order_points_tsp(points: list) -> list:
+    """Order points into a closed simple polygon by finding a short closed tour
+    (nearest-neighbour seed + 2-opt). Points on the boundary of a taped outline
+    are recovered in perimeter order, which works for irregular/concave shapes."""
+    pts = [(float(p[0]), float(p[1])) for p in points]
+    n = len(pts)
+    if n < 3:
+        return [[x, y] for x, y in pts]
+
+    def d(i, j):
+        return math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1])
+
+    # nearest-neighbour tour starting from the top-most point
+    start = min(range(n), key=lambda i: (pts[i][1], pts[i][0]))
+    unvisited = set(range(n))
+    unvisited.remove(start)
+    tour = [start]
+    while unvisited:
+        last = tour[-1]
+        nxt = min(unvisited, key=lambda j: d(last, j))
+        tour.append(nxt)
+        unvisited.remove(nxt)
+
+    # 2-opt improvement on the closed tour
+    improved = True
+    while improved:
+        improved = False
+        for i in range(n - 1):
+            for k in range(i + 1, n):
+                a, b = tour[i], tour[(i + 1) % n]
+                c, e = tour[k], tour[(k + 1) % n]
+                if a == c or b == e:
+                    continue
+                if d(a, b) + d(c, e) > d(a, c) + d(b, e) + 1e-6:
+                    tour[i + 1:k + 1] = reversed(tour[i + 1:k + 1])
+                    improved = True
+    return [[pts[i][0], pts[i][1]] for i in tour]
+
+
 def detect_tape_corner_dots(bgr: np.ndarray, color: str) -> Optional[np.ndarray]:
     """Detect WHITE marker-pen dots drawn on the coloured tape (e.g. white marks
     on blue tape) and return the 4 corner dots (TL,TR,BR,BL px). These give a more

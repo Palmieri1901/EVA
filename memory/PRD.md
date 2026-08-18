@@ -5,6 +5,16 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06) — Anteprima VETTORIALE zoomabile (Vettorizza)
+- Nuovo componente `src/components/VectorPreview.tsx`: disegna le polilinee del risultato
+  (`result.polylines`, mm, Y-giù) come SVG vettoriale con pinch/pan + pulsanti zoom +/−/fit
+  (viewBox-based, stesso pattern dell'editor). Usa un unico `<Path>` con `fillRule="evenodd"`
+  così i fori (contorni interni delle lettere/emblemi) si vedono correttamente, con griglia mm
+  adattiva. Filtra i punti non finiti per evitare crash di render.
+- `vectorize.tsx`: toggle VETTORE / IMMAGINE sotto la preview (default VETTORE dopo l'analisi).
+  Il risultato è ora esplorabile come disegno vettoriale nitido a qualsiasi zoom invece della sola
+  anteprima PNG. Verificato: forma con foro evenodd + cerchio, zoom mantiene linee nette.
+
 ## Users
 - Artigiani/laboratori che tagliano tappeti EVA per barche.
 - Officine con fresa CNC che vogliono digitalizzare sagome senza rilievi manuali.
@@ -29,6 +39,20 @@ FastAPI condiviso; la Computer Vision gira sul backend.
 5. Texture/scritte/forme: testo→vettoriale, import SVG, pattern track, forme (rect/circle/line),
    layer INCISIONE (ENGRAVE) / TAGLIO (CUT).
 6. Export DXF in mm con layer distinti; progetti salvati, storico, riesportazione.
+
+## Feature (2026-08-18) — PUNTI NERI (contorno da punti d'angolo, forme irregolari)
+- Caso reale: nastro di carta BEIGE su legno marrone = contrasto troppo basso per il rilevamento a
+  colori/texture. L'utente segna i vertici con PUNTI NERI. Nuova modalità nel flusso FOTO+RIFERIMENTO.
+- Backend (`cv_pipeline.detect_black_dots` + `order_points_tsp`): rileva i punti scuri (soglia
+  adattiva + gate di dimensione/contrasto per scartare i nodi del legno) e li ordina in un anello
+  chiuso (nearest-neighbour + 2-opt) → contorno anche per forme a L/irregolari.
+  `photogram.rectify_and_extract` rtype "dots": scala dai 2 punti a distanza nota (come 'line'),
+  accetta una lista `dots` ripulita dall'utente o auto-rileva. Endpoint `POST
+  /projects/{id}/photogram/detect-dots`.
+- Frontend (`photogram/[id].tsx`): segmented "PUNTI NERI", pulsante RILEVA PUNTI, toggle IMPOSTA
+  SCALA (tocca 2 punti + mm), tocco sulla foto per aggiungere/rimuovere i punti outline (cerchi
+  arancioni), poi ESTRAI CONTORNO. La rifinitura finale (spostare/aggiungere/eliminare) resta
+  disponibile nell'editor. Verificato: foto reale a L → contorno 6 punti, bbox ~545×1235mm; UI senza errori.
 
 ## Fix (2026-08-17f) — Nastro BIANCO su fondo SCURO non rilevato senza marker
 - Il rilevamento "bianco"/white_on_dark usava una soglia fissa (V>165) che con luce non uniforme si

@@ -219,11 +219,11 @@ def rectify_and_extract(mosaic: np.ndarray, reference: dict,
         out_h = max(2, int(plane_h * S))
         rectified = cv2.warpPerspective(mosaic, H_total, (out_w, out_h),
                                         flags=cv2.INTER_LINEAR, borderValue=(255, 255, 255))
-    elif rtype == "line":
+    elif rtype in ("line", "dots"):
         pts = _clean_points((reference or {}).get("points") or [], 2)
         length_mm = float(reference.get("length_mm") or 0)
         if length_mm <= 0:
-            raise ValueError("Inserisci la lunghezza reale della linea (mm)")
+            raise ValueError("Inserisci la distanza reale tra i due punti (mm)")
         (x0, y0), (x1, y1) = pts
         dist_px = float(np.hypot(x1 - x0, y1 - y0))
         if dist_px < 2:
@@ -236,6 +236,31 @@ def rectify_and_extract(mosaic: np.ndarray, reference: dict,
         raise ValueError("Tipo di riferimento sconosciuto")
 
     h_r, w_r = rectified.shape[:2]
+    if rtype == "dots":
+        # Auto black-dot outline: connect the black corner dots in perimeter order.
+        # Scale comes from the two tapped reference points (line-style). The user may
+        # supply a cleaned-up 'dots' list; otherwise we auto-detect them.
+        scale = rectified.shape[1] / float(mosaic.shape[1])
+        user_dots = (reference or {}).get("dots") or []
+        if isinstance(user_dots, list) and len(user_dots) >= 3:
+            raw = [[float(p[0]) * scale, float(p[1]) * scale] for p in user_dots
+                   if isinstance(p, (list, tuple)) and len(p) == 2]
+        else:
+            raw = cv.detect_black_dots(rectified)
+        if len(raw) < 3:
+            raise ValueError("Punti neri non rilevati: toccali tu sulla foto per aggiungerli")
+        ordered = cv.order_points_tsp(raw)
+        contour_px = np.array(ordered, dtype=np.float32)
+        contour_mm = cv.px_to_mm(contour_px, mm_per_px)
+        detected = True
+        ok, buf = cv2.imencode(".jpg", rectified, [cv2.IMWRITE_JPEG_QUALITY, 88])
+        return {
+            "rectified_bytes": buf.tobytes() if ok else None,
+            "w_px": w_r, "h_px": h_r, "mm_per_px": mm_per_px,
+            "contour_mm": contour_mm, "detected": detected,
+            "dots_px": [[float(p[0]), float(p[1])] for p in ordered],
+        }
+
     # Primary: detect the coloured tape band and take the mat outline it delimits.
     # Fallback: GrabCut foreground segmentation.
     contour_px = _segment_tape(rectified, background_mode, cut_side)
