@@ -161,6 +161,11 @@ export default function BoatRender() {
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
+      // keep the drag alive: don't let a parent (ScrollView/gesture) steal it
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
       onPanResponderGrant: (_e, gs) => {
         const f = fitRef.current; if (!f) return;
         // Use page coords minus the canvas offset — reliable on touch devices

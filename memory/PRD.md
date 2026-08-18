@@ -5,6 +5,14 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Fix (2026-06k) — Rendering barca: alcuni pezzi tornavano indietro (PanResponder terminato)
+- CAUSA reale: il PanResponder della canvas veniva TERMINATO a metà drag (log: dopo ~10px non
+  arrivavano più eventi di move). Un responder genitore/gesture rubava il controllo, così il pezzo
+  si spostava di pochi px e sembrava "tornare" alla posizione originale (intermittente, "alcuni pezzi").
+- FIX: aggiunti `onPanResponderTerminationRequest: () => false` e `onShouldBlockNativeResponder: () => true`
+  (+ capture handlers) così la canvas mantiene il responder per tutta la durata del drag. Verificato via
+  log: eventi di move ora continui fino a dx=125/dy=150; il diamante (Pezzo 3) segue l'intero trascinamento.
+
 ## Feature (2026-06j) — Nesting su PIÙ FOGLI numerati (auto-overflow oltre 2400mm)
 - `nesting.py` ora multi-bin: quando un pezzo non entra nei fogli aperti (900×2400) ne apre uno nuovo.
   Ritorna `sheets` (lista per foglio con pieces/cut/engrave/used_h/utilization locali), `sheet_count`,
