@@ -5,6 +5,11 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06h) — Rendering barca: "APPLICA COLORE RIGA A TUTTI"
+- `render/[id].tsx`: pulsante sotto la palette RIGA/SCANALATURA (`grv-apply-all`) che imposta `_grv`
+  del pezzo selezionato su TUTTI i pezzi in un tocco, con toast di conferma. Verificato: "Blu" → tutte
+  le righe diventano blu.
+
 ## Feature (2026-06g) — Rendering barca: palette COLORE RIGA/SCANALATURA ampliata
 - `render/[id].tsx` + `boat_render.py`: la scelta "RIGA / SCANALATURA" per pezzo ora offre 8 colori
   (bianco, nero, grigio, marrone, rosso, blu, giallo, verde) invece di solo bianco/nero. `GRV`/`GROOVE`

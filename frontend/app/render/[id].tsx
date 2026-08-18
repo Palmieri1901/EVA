@@ -387,6 +387,18 @@ export default function BoatRender() {
                     </Pressable>
                   ))}
                 </View>
+                <Pressable
+                  testID="grv-apply-all"
+                  onPress={() => {
+                    setPieces((prev) => prev.map((p) => ({ ...p, _grv: selP._grv })));
+                    Haptics.selectionAsync().catch(() => {});
+                    toast("Colore riga applicato a tutti i pezzi", "success");
+                  }}
+                  style={styles.applyAll}
+                >
+                  <Feather name="layers" size={15} color={colors.brand} />
+                  <Text style={styles.applyAllTxt}>APPLICA QUESTO COLORE A TUTTI I PEZZI</Text>
+                </Pressable>
                 <Text style={styles.lbl}>RUOTA</Text>
                 <View style={styles.chips}>
                   {[-90, -15, 15, 90].map((d) => (
@@ -429,6 +441,8 @@ const styles = StyleSheet.create({
   canvas: { height: 420, backgroundColor: colors.surfaceSecondary, borderBottomWidth: BORDER, borderBottomColor: colors.borderStrong },
   canvasHint: { position: "absolute", bottom: 6, left: 0, right: 0, textAlign: "center", fontFamily: fonts.mono, fontSize: 11, color: colors.onSurfaceTertiary },
   ctrlBtn: { width: 38, height: 38, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: BORDER, borderColor: colors.borderStrong },
+  applyAll: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: space.sm, paddingVertical: 10, borderWidth: BORDER, borderColor: colors.brand, backgroundColor: colors.surface },
+  applyAllTxt: { fontFamily: fonts.monoMed, fontSize: 12, color: colors.brand, letterSpacing: 0.5 },
   zoomCol: { position: "absolute", top: space.sm, right: space.sm, gap: space.xs },
   dpad: { position: "absolute", right: space.sm, bottom: space.lg, width: 118, height: 118 },
   dUp: { position: "absolute", top: 0, left: 40 },
