@@ -5,6 +5,16 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Fix (2026-06l) — Rendering: il PDF/PNG non rispecchiava la composizione salvata
+- CAUSA: al caricamento della tela `_lx: p.layout_x || fallback` (e `_ly`, `_rot`) trattava lo **0
+  come valore mancante** → la tela mostrava posizioni diverse da quelle salvate, mentre il PDF/PNG
+  (che leggono correttamente i valori salvati) mostravano la composizione reale → tela e PDF divergevano.
+- FIX (`render/[id].tsx`): uso `??` (nullish) per `_lx/_ly/_rot` così lo 0 (e valori negativi) sono
+  rispettati; il fallback a griglia si applica solo se il valore è null/undefined.
+- Confermato che l'endpoint `render.{fmt}` legge sempre i pezzi freschi dal DB e onora
+  layout_x/y/rot + texture (verificato: cambiando le posizioni via API il render cambia; tela e PNG
+  ora combaciano, rotazione inclusa).
+
 ## Fix (2026-06k) — Rendering barca: alcuni pezzi tornavano indietro (PanResponder terminato)
 - CAUSA reale: il PanResponder della canvas veniva TERMINATO a metà drag (log: dopo ~10px non
   arrivavano più eventi di move). Un responder genitore/gesture rubava il controllo, così il pezzo

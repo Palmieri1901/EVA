@@ -100,9 +100,9 @@ export default function BoatRender() {
         .filter((p) => p.contour_mm && p.contour_mm.length >= 3)
         .map((p, i) => ({
           ...p,
-          _lx: p.layout_x || (i % 3) * 300,
-          _ly: p.layout_y || Math.floor(i / 3) * 300,
-          _rot: p.layout_rot || 0,
+          _lx: p.layout_x ?? (i % 3) * 300,
+          _ly: p.layout_y ?? Math.floor(i / 3) * 300,
+          _rot: p.layout_rot ?? 0,
           _eva: p.eva_color || "marrone",
           _grv: p.groove_color || "bianco",
         }));
