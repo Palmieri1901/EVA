@@ -5,6 +5,12 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06g) — Rendering barca: palette COLORE RIGA/SCANALATURA ampliata
+- `render/[id].tsx` + `boat_render.py`: la scelta "RIGA / SCANALATURA" per pezzo ora offre 8 colori
+  (bianco, nero, grigio, marrone, rosso, blu, giallo, verde) invece di solo bianco/nero. `GRV`/`GROOVE`
+  aggiornate coerentemente; swatch chip usa il colore reale. Canvas + export PNG/PDF usano `groove_color`.
+  Verificato: righe di Pezzo1 diventano rosse selezionando "Rosso".
+
 ## Feature (2026-06f) — Rendering barca: controlli ZOOM +/- e PAN con frecce
 - `render/[id].tsx`: aggiunti `zoomView(factor)` (zoom attorno al centro tela agendo su `fit.s`
   + ricalcolo `ox/oy`) e `panView(dx,dy)` (sposta `fit.ox/oy` di PAN_STEP=40px). UI: colonna in alto

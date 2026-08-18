@@ -21,9 +21,9 @@ import { useToast } from "@/src/components/toast";
 import { BORDER, colors, fonts, fontSize, space } from "@/src/theme";
 
 const EVA: Record<string, string> = { marrone: "#6B4A2B", grigio: "#8A8A8A", nero: "#232323", beige: "#C9B48F" };
-const GRV: Record<string, string> = { bianco: "#FFFFFF", nero: "#111111" };
+const GRV: Record<string, string> = { bianco: "#FFFFFF", nero: "#111111", grigio: "#9A9A9A", marrone: "#5A3A1E", rosso: "#C0392B", blu: "#2C5AA0", giallo: "#E1B000", verde: "#2E7D32" };
 const EVA_LIST: [string, string][] = [["marrone", "Marrone"], ["grigio", "Grigio"], ["nero", "Nero"], ["beige", "Beige"]];
-const GROOVE_LIST: [string, string][] = [["bianco", "Bianco"], ["nero", "Nero"]];
+const GROOVE_LIST: [string, string][] = [["bianco", "Bianco"], ["nero", "Nero"], ["grigio", "Grigio"], ["marrone", "Marrone"], ["rosso", "Rosso"], ["blu", "Blu"], ["giallo", "Giallo"], ["verde", "Verde"]];
 
 type P = ProjectT & { _lx: number; _ly: number; _rot: number; _eva: string; _grv: string };
 
@@ -382,7 +382,7 @@ export default function BoatRender() {
                 <View style={styles.chips}>
                   {GROOVE_LIST.map(([v, l]) => (
                     <Pressable key={v} onPress={() => setSelField({ _grv: v })} style={[styles.chip, selP._grv === v && styles.chipOn]}>
-                      <View style={[styles.sw, { backgroundColor: v === "bianco" ? "#fff" : "#111", borderWidth: 1, borderColor: "#999" }]} />
+                      <View style={[styles.sw, { backgroundColor: GRV[v] || "#111", borderWidth: 1, borderColor: "#999" }]} />
                       <Text style={[styles.chipTxt, selP._grv === v && styles.chipTxtOn]}>{l}</Text>
                     </Pressable>
                   ))}

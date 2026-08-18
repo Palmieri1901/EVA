@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Polygon as MplPoly, Rectangle  # noqa: E402
 
 EVA = {"marrone": "#6B4A2B", "grigio": "#8A8A8A", "nero": "#232323", "beige": "#C9B48F"}
-GROOVE = {"bianco": "#FFFFFF", "nero": "#111111"}
+GROOVE = {"bianco": "#FFFFFF", "nero": "#111111", "grigio": "#9A9A9A", "marrone": "#5A3A1E", "rosso": "#C0392B", "blu": "#2C5AA0", "giallo": "#E1B000", "verde": "#2E7D32"}
 EVA_LABEL = {"marrone": "Marrone", "grigio": "Grigio", "nero": "Nero", "beige": "Beige"}
 
 
