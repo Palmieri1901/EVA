@@ -138,7 +138,7 @@ export default function Editor() {
 
   // add-element modal
   const [addOpen, setAddOpen] = useState(false);
-  const [elType, setElType] = useState<"text" | "track" | "rect" | "circle" | "line" | "svg">("text");
+  const [elType, setElType] = useState<"text" | "track" | "rect" | "circle" | "line" | "svg" | "junction">("text");
   const [elLayer, setElLayer] = useState<Layer>("ENGRAVE");
   const [textVal, setTextVal] = useState("");
   const [sizeVal, setSizeVal] = useState("40");
@@ -446,9 +446,17 @@ export default function Editor() {
       } else if (elType === "line") {
         const w = parseFloat(sizeVal) || 100;
         polylines = [[[bb.cx - w / 2, bb.cy], [bb.cx + w / 2, bb.cy]]];
+      } else if (elType === "junction") {
+        // Straight junction/seam: looks like an engraved line but is a real CUT.
+        // The mat is adhesive, so no mechanical teeth are needed — the two parts
+        // are simply butted together and stuck down. Splits a large/complex mat.
+        const len = parseFloat(sizeVal) || bb.w;
+        polylines = [[[bb.cx - len / 2, bb.cy], [bb.cx + len / 2, bb.cy]]];
       }
       if (!polylines.length) throw new Error("Nessuna geometria generata");
-      const el: ElementT = { id: uid(), type: elType, layer: elLayer, polylines, params: {} };
+      // a junction is always a CUT (giunzione/taglio), regardless of the selector
+      const layer: Layer = elType === "junction" ? "CUT" : elLayer;
+      const el: ElementT = { id: uid(), type: elType, layer, polylines, params: {} };
       let next = [...elements, el];
       // If the piece already has a texture, re-cut it so the configured clear
       // space + border is left around the newly inserted element too.
@@ -495,14 +503,15 @@ export default function Editor() {
     }
     opts.setBusy?.(true);
     try {
-      // keep-out zones: ALL inserted elements (text, logos/svg, circles, rects,
-      // lines, tracks, vectorized polylines) — everything except the fill
-      // textures themselves — get the clear margin around them.
+      // keep-out zones: inserted elements (text, logos/svg, circles, rects,
+      // lines, tracks, vectorized polylines) get the clear margin around them.
+      // Junctions are excluded: they're just a CUT seam through the textured mat,
+      // so the texture must flow across them uninterrupted.
       const clear = opts.clearMargin ?? 0;
       const exclude: number[][][] =
         clear > 0
           ? elements
-              .filter((e) => e.type !== "fill")
+              .filter((e) => e.type !== "fill" && e.type !== "junction")
               .flatMap((e) => e.polylines)
           : [];
       const r = await api.geoFill({
@@ -560,7 +569,7 @@ export default function Editor() {
   const rebuildFills = async (els: ElementT[]): Promise<ElementT[]> => {
     const fills = els.filter((e) => e.type === "fill");
     if (fills.length === 0) return els;
-    const keepout = els.filter((e) => e.type !== "fill").flatMap((e) => e.polylines);
+    const keepout = els.filter((e) => e.type !== "fill" && e.type !== "junction").flatMap((e) => e.polylines);
     const out = [...els];
     for (const f of fills) {
       const pr: any = f.params || {};
@@ -878,15 +887,15 @@ export default function Editor() {
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg }}>
               <Text style={styles.modalLabel}>Tipo</Text>
               <View style={styles.typeGrid}>
-                {(["text", "svg", "track", "rect", "circle", "line"] as const).map((t) => (
+                {(["text", "svg", "track", "rect", "circle", "line", "junction"] as const).map((t) => (
                   <Pressable
                     key={t}
                     testID={`type-${t}`}
-                    onPress={() => setElType(t)}
+                    onPress={() => { setElType(t); if (t === "junction") setSizeVal(String(Math.round(bboxOf(contour).w))); }}
                     style={[styles.typeChip, elType === t && { backgroundColor: colors.surfaceInverse }]}
                   >
                     <Text style={[styles.typeChipText, elType === t && { color: colors.onSurfaceInverse }]}>
-                      {t.toUpperCase()}
+                      {t === "junction" ? "GIUNZIONE" : t.toUpperCase()}
                     </Text>
                   </Pressable>
                 ))}
@@ -935,17 +944,27 @@ export default function Editor() {
                   <ModalField label="Angolo (°)" testID="modal-angle" value={angleVal} onChangeText={setAngleVal} keyboardType="decimal-pad" />
                 </>
               )}
+              {elType === "junction" && (
+                <>
+                  <Text style={styles.modalHint}>Giunzione: sembra un'incisione ma è un TAGLIO. Divide un tappeto grande/complesso (es. attorno alla consolle) in più parti da accostare — il tappeto è adesivo, quindi basta appoggiarle una accanto all'altra. Posiziona/ruota/allunga la linea con le frecce dopo l'inserimento.</Text>
+                  <ModalField label="Lunghezza (mm)" testID="modal-size" value={sizeVal} onChangeText={setSizeVal} keyboardType="decimal-pad" />
+                </>
+              )}
 
-              <Text style={styles.modalLabel}>Layer DXF</Text>
-              <Segmented<Layer>
-                testID="modal-layer"
-                value={elLayer}
-                onChange={setElLayer}
-                options={[
-                  { label: "INCISIONE", value: "ENGRAVE" },
-                  { label: "TAGLIO", value: "CUT" },
-                ]}
-              />
+              {elType !== "junction" && (
+                <>
+                  <Text style={styles.modalLabel}>Layer DXF</Text>
+                  <Segmented<Layer>
+                    testID="modal-layer"
+                    value={elLayer}
+                    onChange={setElLayer}
+                    options={[
+                      { label: "INCISIONE", value: "ENGRAVE" },
+                      { label: "TAGLIO", value: "CUT" },
+                    ]}
+                  />
+                </>
+              )}
               <View style={{ height: space.lg }} />
               <Btn testID="modal-confirm" label="AGGIUNGI" loading={addBusy} onPress={confirmAdd} />
             </ScrollView>
@@ -1438,6 +1457,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontFamily: fonts.display, fontSize: fontSize.xl, color: colors.onSurface, letterSpacing: 1 },
   modalLabel: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurfaceSecondary, marginBottom: space.xs, textTransform: "uppercase" },
+  modalHint: { fontFamily: fonts.mono, fontSize: 12, color: colors.onSurfaceSecondary, marginBottom: space.md, lineHeight: 17 },
   typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.lg },
   typeChip: { borderWidth: BORDER, borderColor: colors.borderStrong, paddingHorizontal: space.md, paddingVertical: 8, backgroundColor: colors.surface },
   typeChipText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface },

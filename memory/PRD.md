@@ -5,6 +5,16 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06m) — Editor: GIUNZIONE (taglio/seam dritto, tappeto adesivo)
+- Nuovo tipo elemento "GIUNZIONE" nel modale AGGIUNGI: genera una LINEA DRITTA (non dentellata —
+  il tappeto è adesivo, non serve incastro meccanico) forzata su layer CUT. Sembra un'incisione ma
+  in export è un taglio, per dividere tappeti grandi/complessi (es. attorno alla consolle) in parti
+  da accostare. Lunghezza predefinita = larghezza pezzo; posizionabile/ruotabile/scalabile con le
+  frecce come gli altri elementi. Selettore layer nascosto per la giunzione (sempre TAGLIO).
+- Le GIUNZIONI sono escluse dal keep-out dei riempimenti (`runFill` e `rebuildFills`): la texture
+  scorre attraverso il taglio senza lasciare canali vuoti.
+- Verificato: elemento salvato con layer=CUT, 2 punti; render nel canvas come linea attraverso il pezzo.
+
 ## Fix (2026-06l) — Rendering: il PDF/PNG non rispecchiava la composizione salvata
 - CAUSA: al caricamento della tela `_lx: p.layout_x || fallback` (e `_ly`, `_rot`) trattava lo **0
   come valore mancante** → la tela mostrava posizioni diverse da quelle salvate, mentre il PDF/PNG
