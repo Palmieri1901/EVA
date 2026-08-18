@@ -5,6 +5,14 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Fix (2026-06) — Rendering barca: i pezzi tornavano alla posizione iniziale durante il drag
+- BUG: in `render/[id].tsx` la trasformazione della vista `fit` era un `useMemo([pieces, cw])`;
+  ad ogni `onPanResponderMove` (che aggiorna `pieces`) il bounding box del mondo veniva ricalcolato
+  e la vista ri-scalata/ri-centrata → il pezzo trascinato sembrava "tornare" al suo posto.
+- FIX: `fit` è ora uno `state` calcolato UNA SOLA VOLTA per caricamento (via effetto quando `fit===null`
+  e `cw` noto). `load()` resetta `fit=null` per rifittare sui dati appena caricati; durante il drag
+  la vista resta STABILE. Verificato: pezzo trascinato resta nella nuova posizione, nessun rientro.
+
 ## Feature (2026-06) — Anteprima VETTORIALE zoomabile (Vettorizza)
 - Nuovo componente `src/components/VectorPreview.tsx`: disegna le polilinee del risultato
   (`result.polylines`, mm, Y-giù) come SVG vettoriale con pinch/pan + pulsanti zoom +/−/fit

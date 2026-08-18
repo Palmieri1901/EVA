@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -78,6 +78,7 @@ export default function BoatRender() {
           _grv: p.groove_color || "bianco",
         }));
       setPieces(ps as P[]);
+      setFit(null); // recompute the fit for the freshly loaded layout
     } catch (e: any) {
       toast(e.message, "error");
     } finally {
@@ -87,11 +88,13 @@ export default function BoatRender() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  // world bbox + fit
-  const fit = useMemo(() => {
-    if (pieces.length === 0 || !cw) return null;
+  // world bbox + fit — computed ONCE per load (stable), NOT on every drag,
+  // otherwise moving a piece would re-fit/re-center the whole view and the
+  // pieces would appear to snap back to their initial position.
+  const computeFit = useCallback((ps: P[], width: number) => {
+    if (ps.length === 0 || !width) return null;
     let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
-    for (const p of pieces) {
+    for (const p of ps) {
       for (const [x, y] of transformed(p)) {
         minx = Math.min(minx, x); miny = Math.min(miny, y);
         maxx = Math.max(maxx, x); maxy = Math.max(maxy, y);
@@ -99,11 +102,19 @@ export default function BoatRender() {
     }
     const pad = Math.max(40, 0.05 * Math.max(maxx - minx, maxy - miny));
     minx -= pad; miny -= pad; maxx += pad; maxy += pad;
-    const s = Math.min(cw / (maxx - minx), CH / (maxy - miny));
-    const ox = (cw - (maxx - minx) * s) / 2;
+    const s = Math.min(width / (maxx - minx), CH / (maxy - miny));
+    const ox = (width - (maxx - minx) * s) / 2;
     const oy = (CH - (maxy - miny) * s) / 2;
     return { minx, miny, s, ox, oy };
-  }, [pieces, cw]);
+  }, []);
+
+  const [fit, setFit] = useState<{ minx: number; miny: number; s: number; ox: number; oy: number } | null>(null);
+  // (re)fit only when a fresh dataset is loaded (fit reset to null) or the
+  // canvas width becomes known — never while the user is dragging pieces.
+  React.useEffect(() => {
+    if (fit || !cw || pieces.length === 0) return;
+    setFit(computeFit(pieces, cw));
+  }, [fit, cw, pieces, computeFit]);
 
   const toScreen = (pt: number[]) => fit ? [(pt[0] - fit.minx) * fit.s + fit.ox, (pt[1] - fit.miny) * fit.s + fit.oy] : pt;
 
