@@ -318,6 +318,7 @@ export default function Editor() {
     );
     setElements(next);
     await save({ elements: next });
+    scheduleRefill(next);
   };
   const moveEl = (dx: number, dy: number) => {
     if (!selElement) return;
@@ -448,7 +449,10 @@ export default function Editor() {
       }
       if (!polylines.length) throw new Error("Nessuna geometria generata");
       const el: ElementT = { id: uid(), type: elType, layer: elLayer, polylines, params: {} };
-      const next = [...elements, el];
+      let next = [...elements, el];
+      // If the piece already has a texture, re-cut it so the configured clear
+      // space + border is left around the newly inserted element too.
+      next = await rebuildFills(next);
       setElements(next);
       setSelElement(el.id);
       await save({ elements: next });
@@ -463,9 +467,11 @@ export default function Editor() {
   };
 
   const delElement = async (eid: string) => {
-    const next = elements.filter((e) => e.id !== eid);
-    setElements(next);
+    let next = elements.filter((e) => e.id !== eid);
     if (selElement === eid) setSelElement(null);
+    // re-cut textures so the space around the removed element closes back up
+    next = await rebuildFills(next);
+    setElements(next);
     await save({ elements: next });
   };
 
@@ -519,7 +525,21 @@ export default function Editor() {
         type: "fill",
         layer: opts.layer,
         polylines: r.polylines,
-        params: { pattern: opts.pattern, style: opts.style, groove: opts.groove },
+        // store the FULL fill setup so the texture can be regenerated later
+        // (e.g. to carve the clear space + border around newly added elements).
+        params: {
+          pattern: opts.pattern,
+          style: opts.style,
+          spacing: opts.spacing,
+          angle: opts.angle,
+          auto: opts.auto,
+          border: opts.border,
+          groove: opts.groove,
+          board: opts.board,
+          diamondHeight: opts.diamondHeight || 0,
+          clearMargin: clear,
+          layer: opts.layer,
+        },
       };
       const next = [...elements, el];
       setElements(next);
@@ -532,6 +552,59 @@ export default function Editor() {
     } finally {
       opts.setBusy?.(false);
     }
+  };
+
+  // Regenerate every existing fill texture so the configured clear space +
+  // border is carved around ALL current non-fill elements (used after a new
+  // element is inserted/removed on a piece that already has a texture).
+  const rebuildFills = async (els: ElementT[]): Promise<ElementT[]> => {
+    const fills = els.filter((e) => e.type === "fill");
+    if (fills.length === 0) return els;
+    const keepout = els.filter((e) => e.type !== "fill").flatMap((e) => e.polylines);
+    const out = [...els];
+    for (const f of fills) {
+      const pr: any = f.params || {};
+      const clear = pr.clearMargin ?? 15;
+      const pattern = pr.pattern || "lines";
+      const isLines = pattern === "lines";
+      const bordato = (pr.style || "semplice") === "bordato";
+      try {
+        const r = await api.geoFill({
+          contour,
+          spacing_mm: pr.spacing ?? (isLines ? 60 : 40),
+          angle_deg: pr.angle ?? 0,
+          // legacy fills lack these — reconstruct a teak-like look for lines
+          auto_angle: pr.auto ?? isLines,
+          pattern,
+          style: pr.style || "semplice",
+          border_mm: pr.border ?? 40,
+          groove_mm: pr.groove ?? 0,
+          board_length_mm: pr.board ?? (isLines && bordato ? 400 : 0),
+          diamond_height_mm: pr.diamondHeight ?? 0,
+          exclude: clear > 0 ? keepout : [],
+          exclude_margin_mm: clear,
+          layer: pr.layer || f.layer,
+        });
+        const idx = out.findIndex((e) => e.id === f.id);
+        if (idx >= 0) out[idx] = { ...f, polylines: r.polylines };
+      } catch {
+        // keep the old fill if regeneration fails
+      }
+    }
+    return out;
+  };
+
+  // Debounced re-cut after an element is moved/rotated/scaled, so the texture
+  // clear space follows the element to its final position (no per-nudge lag).
+  const refillTimer = useRef<any>(null);
+  const scheduleRefill = (els: ElementT[]) => {
+    if (!els.some((e) => e.type === "fill")) return;
+    if (refillTimer.current) clearTimeout(refillTimer.current);
+    refillTimer.current = setTimeout(async () => {
+      const rebuilt = await rebuildFills(els);
+      setElements(rebuilt);
+      await save({ elements: rebuilt });
+    }, 600);
   };
 
   const confirmFill = () =>

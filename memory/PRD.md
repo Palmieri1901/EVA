@@ -5,6 +5,21 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06e) — Editor: la texture si ri-taglia attorno agli elementi inseriti DOPO
+- BUG (utente): se un pezzo aveva GIÀ la texture e poi si inseriva una linea/cerchio/logo, la
+  texture non lasciava lo spazio pulito + bordatura attorno al nuovo elemento (l'exclude era
+  calcolato solo al momento del RIEMPI).
+- FIX (`editor/[id].tsx`): `runFill` ora salva TUTTI i parametri del riempimento
+  (pattern, style, spacing, angle, auto, border, groove, board, diamondHeight, clearMargin, layer)
+  in `element.params`. Nuovo `rebuildFills(els)`: rigenera ogni fill esistente con i suoi parametri
+  e l'exclude = tutti gli elementi non-fill correnti (spazio pulito + solco automatici). Chiamato in
+  `confirmAdd` (inserimento), `delElement` (rimozione) e via `scheduleRefill` con debounce 600ms in
+  `applyEl` (dopo spostamento/rotazione/scala di un elemento → il foro segue la posizione finale).
+- Compat legacy: i fill vecchi senza params completi vengono rigenerati con default sensati
+  (lines→auto-angle + board 400 = doghe teak; clearMargin 15mm) così mantengono l'aspetto teak.
+- Verificato: su Pezzo1 (teak + SANDRO) inserendo cerchio e linea la texture si rigenera a doghe
+  verticali con fori e bordature attorno a SANDRO+cerchio+linea. Dati di test poi ripuliti.
+
 ## Feature (2026-06d) — Rendering barca: TEXTURE reali dei pezzi + spazio pulito su TUTTI gli elementi
 - BUG (utente): il rendering barca (canvas + export PNG/PDF) mostrava solo il colore EVA pieno con
   doghe teak GENERICHE (55mm fisse), ignorando le texture applicate dall'utente nell'editor.
