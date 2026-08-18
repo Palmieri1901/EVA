@@ -5,6 +5,20 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06d) — Rendering barca: TEXTURE reali dei pezzi + spazio pulito su TUTTI gli elementi
+- BUG (utente): il rendering barca (canvas + export PNG/PDF) mostrava solo il colore EVA pieno con
+  doghe teak GENERICHE (55mm fisse), ignorando le texture applicate dall'utente nell'editor.
+- FIX backend (`boat_render.py`): per ogni pezzo disegno i `polylines` dei suoi `elements`
+  (riempimenti teak/diamante, scritte, loghi) trasformati attorno al centroide del contorno
+  (`_transform_about`) + offset layout, clippati al pezzo, colore = groove. Le doghe generiche
+  restano solo come fallback quando il pezzo NON ha ancora elementi.
+- FIX frontend (`render/[id].tsx`): `txPts` generalizza la trasformazione a qualsiasi polilinea;
+  ogni elemento del pezzo è disegnato come `<Polyline>` clippata (`ClipPath`) in colore groove.
+  Verificato: export mostra doghe+SANDRO (con alone pulito) su Pezzo1, diamante su Pezzo3; canvas idem.
+- FIX (`editor/[id].tsx`): il campo "Area pulita" (`exclude`) ora esclude TUTTI gli elementi inseriti
+  (text, svg/logo, rect, circle, line, track, polyline) — prima solo text/svg/polyline. Il backend
+  `_build_keepout` già bufferizza sia forme chiuse sia tratti aperti. Etichetta campo aggiornata.
+
 ## Feature (2026-06c) — Rendering barca: ROTAZIONE a due dita sulla tela
 - Nel PanResponder di `render/[id].tsx`, in `onPanResponderMove` leggo `e.nativeEvent.touches`:
   con ≥2 dita ruoto il pezzo afferrato/selezionato attorno al suo centroide in base al delta

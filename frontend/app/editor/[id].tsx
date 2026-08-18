@@ -489,12 +489,14 @@ export default function Editor() {
     }
     opts.setBusy?.(true);
     try {
-      // keep-out zones: all text + logo (svg) elements
+      // keep-out zones: ALL inserted elements (text, logos/svg, circles, rects,
+      // lines, tracks, vectorized polylines) — everything except the fill
+      // textures themselves — get the clear margin around them.
       const clear = opts.clearMargin ?? 0;
       const exclude: number[][][] =
         clear > 0
           ? elements
-              .filter((e) => e.type === "text" || e.type === "svg" || e.type === "polyline")
+              .filter((e) => e.type !== "fill")
               .flatMap((e) => e.polylines)
           : [];
       const r = await api.geoFill({
@@ -982,7 +984,7 @@ export default function Editor() {
 
               <ModalField label="Lunghezza doga · sfalsata (mm, 0 = continua)" testID="fill-board" value={fillBoard} onChangeText={setFillBoard} keyboardType="decimal-pad" />
 
-              <ModalField label="Area pulita attorno a scritte/logo (mm, 0 = off)" testID="fill-clear" value={fillClearMargin} onChangeText={setFillClearMargin} keyboardType="decimal-pad" />
+              <ModalField label="Area pulita attorno a scritte, loghi, cerchi ed elementi (mm, 0 = off)" testID="fill-clear" value={fillClearMargin} onChangeText={setFillClearMargin} keyboardType="decimal-pad" />
 
               <Text style={styles.modalLabel}>Stile</Text>
               <Segmented<"semplice" | "bordato">

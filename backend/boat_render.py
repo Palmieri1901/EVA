@@ -26,11 +26,21 @@ def _transform(contour, x, y, rot):
     if len(pts) == 0:
         return pts
     c = pts.mean(axis=0)
+    return _transform_about(pts, c, x, y, rot)
+
+
+def _transform_about(pts, center, x, y, rot):
+    """Rotate points about an explicit center (the piece contour centroid) then
+    apply the layout offset — used so a piece's texture elements move/rotate in
+    lock-step with its outline."""
+    p = np.array(pts, dtype=float)
+    if len(p) == 0:
+        return p
     r = np.radians(rot)
     cos, sin = np.cos(r), np.sin(r)
-    rel = pts - c
+    rel = p - center
     rp = np.column_stack([rel[:, 0] * cos - rel[:, 1] * sin, rel[:, 0] * sin + rel[:, 1] * cos])
-    return rp + c + np.array([x, y])
+    return rp + center + np.array([x, y])
 
 
 def _area_m2(contour) -> float:
@@ -79,21 +89,35 @@ def render(pieces: List[dict], boat_name: str = "IMBARCAZIONE", fmt: str = "png"
         used_colors.add(p.get("eva_color", "marrone"))
         patch = MplPoly(tp, closed=True, facecolor=eva, edgecolor="black", lw=1.2, joinstyle="round")
         ax.add_patch(patch)
-        # teak groove stripes, clipped to the piece, following its rotation
-        rot = np.radians(p.get("layout_rot", 0) or 0)
-        c = tp.mean(axis=0)
-        diag = np.hypot(tp[:, 0].max() - tp[:, 0].min(), tp[:, 1].max() - tp[:, 1].min())
-        d = np.array([np.cos(rot), np.sin(rot)])      # stripe direction
-        n = np.array([-np.sin(rot), np.cos(rot)])     # normal (offset direction)
-        # Symmetric around the piece centre: a central plank at k=0, the rest
-        # mirrored outward toward the edges.
-        m = int(diag / stripe) + 1
-        for k in (i * stripe for i in range(-m, m + 1)):
-            base = c + n * k
-            a = base - d * diag
-            b = base + d * diag
-            ln, = ax.plot([a[0], b[0]], [a[1], b[1]], color=grv, lw=0.8, alpha=0.9)
-            ln.set_clip_path(patch)
+        contour_center = np.array(p["contour_mm"], dtype=float).mean(axis=0)
+        lx = p.get("layout_x", 0) or 0
+        ly = p.get("layout_y", 0) or 0
+        prot = p.get("layout_rot", 0) or 0
+        # Draw the ACTUAL textures the user applied in the editor (teak/diamond
+        # fills, lettering, logos) as engraved lines, clipped to the piece.
+        drew_texture = False
+        for el in (p.get("elements") or []):
+            for pl in (el.get("polylines") or []):
+                if not pl or len(pl) < 2:
+                    continue
+                tpl = _transform_about(pl, contour_center, lx, ly, prot)
+                ln, = ax.plot(tpl[:, 0], tpl[:, 1], color=grv, lw=0.8, alpha=0.95)
+                ln.set_clip_path(patch)
+                drew_texture = True
+        # Fallback: generic teak grooves only when the piece has no texture yet.
+        if not drew_texture:
+            rot = np.radians(prot)
+            c = tp.mean(axis=0)
+            diag = np.hypot(tp[:, 0].max() - tp[:, 0].min(), tp[:, 1].max() - tp[:, 1].min())
+            d = np.array([np.cos(rot), np.sin(rot)])      # stripe direction
+            n = np.array([-np.sin(rot), np.cos(rot)])     # normal (offset direction)
+            m = int(diag / stripe) + 1
+            for k in (i * stripe for i in range(-m, m + 1)):
+                base = c + n * k
+                a = base - d * diag
+                b = base + d * diag
+                ln, = ax.plot([a[0], b[0]], [a[1], b[1]], color=grv, lw=0.8, alpha=0.9)
+                ln.set_clip_path(patch)
         area = _area_m2(p["contour_mm"])
         total_area += area
         cx, cy = tp.mean(axis=0)

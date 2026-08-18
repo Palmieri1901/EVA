@@ -13,7 +13,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import Svg, { Polygon, Text as SvgText } from "react-native-svg";
+import Svg, { ClipPath, Defs, Polygon, Polyline, Text as SvgText } from "react-native-svg";
 
 import { api, BoatT, ProjectT } from "@/src/api";
 import { Btn } from "@/src/components/ui";
@@ -21,6 +21,7 @@ import { useToast } from "@/src/components/toast";
 import { BORDER, colors, fonts, fontSize, space } from "@/src/theme";
 
 const EVA: Record<string, string> = { marrone: "#6B4A2B", grigio: "#8A8A8A", nero: "#232323", beige: "#C9B48F" };
+const GRV: Record<string, string> = { bianco: "#FFFFFF", nero: "#111111" };
 const EVA_LIST: [string, string][] = [["marrone", "Marrone"], ["grigio", "Grigio"], ["nero", "Nero"], ["beige", "Beige"]];
 const GROOVE_LIST: [string, string][] = [["bianco", "Bianco"], ["nero", "Nero"]];
 
@@ -32,9 +33,15 @@ function centroid(c: number[][]) {
   return [x / c.length, y / c.length];
 }
 function transformed(p: P): number[][] {
+  return txPts(p, p.contour_mm);
+}
+// Transform arbitrary points of a piece (contour OR texture elements) around the
+// contour centroid, then apply the layout offset — so textures move/rotate with
+// the piece.
+function txPts(p: P, pts: number[][]): number[][] {
   const [cx, cy] = centroid(p.contour_mm);
   const r = (p._rot * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
-  return p.contour_mm.map(([x, y]) => {
+  return pts.map(([x, y]) => {
     const dx = x - cx, dy = y - cy;
     return [cx + dx * cos - dy * sin + p._lx, cy + dx * sin + dy * cos + p._ly];
   });
@@ -283,9 +290,27 @@ export default function BoatRender() {
                   const over = overlapIds.has(p.id);
                   const stroke = over ? "#D22B2B" : p.id === sel ? colors.brand : "#111";
                   const swdt = over ? 3 : p.id === sel ? 3 : 1.5;
+                  const grv = GRV[p._grv] || "#fff";
+                  const clipId = `clip-${p.id}`;
+                  // texture element polylines (teak/diamond fills, lettering, logos)
+                  const texture: string[] = [];
+                  (p.elements || []).forEach((el) => {
+                    (el.polylines || []).forEach((pl) => {
+                      const s = txPts(p, pl).map(toScreen);
+                      const str = s.filter((q) => Number.isFinite(q[0]) && Number.isFinite(q[1]))
+                        .map((q) => `${q[0]},${q[1]}`).join(" ");
+                      if (str) texture.push(str);
+                    });
+                  });
                   return (
                     <React.Fragment key={p.id}>
+                      <Defs>
+                        <ClipPath id={clipId}><Polygon points={pts} /></ClipPath>
+                      </Defs>
                       <Polygon points={pts} fill={EVA[p._eva]} fillOpacity={over ? 0.75 : 1} stroke={stroke} strokeWidth={swdt} strokeDasharray={over ? "8,5" : undefined} />
+                      {texture.map((str, i) => (
+                        <Polyline key={`${p.id}-t${i}`} points={str} fill="none" stroke={grv} strokeWidth={0.9} strokeOpacity={0.95} clipPath={`url(#${clipId})`} />
+                      ))}
                       <SvgText x={ccx} y={ccy} fill="#fff" fontSize="12" fontWeight="bold" textAnchor="middle">{p.piece_name || p.name}</SvgText>
                     </React.Fragment>
                   );
