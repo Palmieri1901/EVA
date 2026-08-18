@@ -160,6 +160,8 @@ export default function Editor() {
   const [fillDiamondHeight, setFillDiamondHeight] = useState("60");
   const [fillStyle, setFillStyle] = useState<"semplice" | "bordato">("semplice");
   const [fillBorder, setFillBorder] = useState("40");
+  const [fillCornerRadius, setFillCornerRadius] = useState("60");
+  const [fillPlankEase, setFillPlankEase] = useState("0");
   const [fillClearMargin, setFillClearMargin] = useState("15");
   const [fillLayer, setFillLayer] = useState<Layer>("ENGRAVE");
   const [fillBusy, setFillBusy] = useState(false);
@@ -493,6 +495,8 @@ export default function Editor() {
     groove: number;
     board: number;
     diamondHeight?: number;
+    cornerRadius?: number;
+    plankEase?: number;
     layer: Layer;
     clearMargin?: number;
     setBusy?: (b: boolean) => void;
@@ -525,6 +529,8 @@ export default function Editor() {
         groove_mm: opts.groove || 0,
         board_length_mm: opts.board || 0,
         diamond_height_mm: opts.diamondHeight || 0,
+        corner_radius_mm: opts.cornerRadius || 0,
+        plank_ease_mm: opts.plankEase || 0,
         exclude,
         exclude_margin_mm: clear,
         layer: opts.layer,
@@ -546,6 +552,8 @@ export default function Editor() {
           groove: opts.groove,
           board: opts.board,
           diamondHeight: opts.diamondHeight || 0,
+          cornerRadius: opts.cornerRadius || 0,
+          plankEase: opts.plankEase || 0,
           clearMargin: clear,
           layer: opts.layer,
         },
@@ -590,6 +598,8 @@ export default function Editor() {
           groove_mm: pr.groove ?? 0,
           board_length_mm: pr.board ?? (isLines && bordato ? 400 : 0),
           diamond_height_mm: pr.diamondHeight ?? 0,
+          corner_radius_mm: pr.cornerRadius ?? 0,
+          plank_ease_mm: pr.plankEase ?? 0,
           exclude: clear > 0 ? keepout : [],
           exclude_margin_mm: clear,
           layer: pr.layer || f.layer,
@@ -627,6 +637,8 @@ export default function Editor() {
       groove: parseFloat(fillGroove),
       board: parseFloat(fillBoard),
       diamondHeight: parseFloat(fillDiamondHeight) || 0,
+      cornerRadius: parseFloat(fillCornerRadius) || 0,
+      plankEase: parseFloat(fillPlankEase) || 0,
       layer: fillLayer,
       clearMargin: parseFloat(fillClearMargin) || 0,
       setBusy: setFillBusy,
@@ -644,7 +656,7 @@ export default function Editor() {
   const applyPreset = (name: "doghe" | "diamante" | "incrociato") => {
     const clearMargin = parseFloat(fillClearMargin) || 0;
     if (name === "doghe") {
-      runFill({ pattern: "lines", spacing: 60, angle: 0, auto: true, style: "bordato", border: 40, groove: 5, board: 400, layer: "ENGRAVE", clearMargin });
+      runFill({ pattern: "lines", spacing: 60, angle: 0, auto: true, style: "bordato", border: 40, groove: 5, board: 400, cornerRadius: 60, plankEase: 8, layer: "ENGRAVE", clearMargin });
     } else if (name === "diamante") {
       runFill({ pattern: "diamond", spacing: 60, angle: 0, auto: false, style: "semplice", border: 30, groove: 4, board: 0, diamondHeight: 60, layer: "ENGRAVE", clearMargin });
     } else {
@@ -1090,7 +1102,13 @@ export default function Editor() {
               />
               <View style={{ height: space.md }} />
               {fillStyle === "bordato" && (
-                <ModalField label="Margine bordo (mm)" testID="fill-border" value={fillBorder} onChangeText={setFillBorder} keyboardType="decimal-pad" />
+                <>
+                  <ModalField label="Margine bordo (mm)" testID="fill-border" value={fillBorder} onChangeText={setFillBorder} keyboardType="decimal-pad" />
+                  <ModalField label="Raggio angoli bordatura (mm)" testID="fill-corner" value={fillCornerRadius} onChangeText={setFillCornerRadius} keyboardType="decimal-pad" />
+                </>
+              )}
+              {(fillPattern === "lines") && (
+                <ModalField label="Svaso estremità doghe (mm, 0 = off)" testID="fill-ease" value={fillPlankEase} onChangeText={setFillPlankEase} keyboardType="decimal-pad" />
               )}
 
               <Text style={styles.modalLabel}>Layer DXF</Text>

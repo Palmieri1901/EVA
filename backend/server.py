@@ -216,8 +216,8 @@ def _boat_nested(pieces: List[dict]) -> dict:
     items = []
     total_area = 0.0
     for p in pieces:
-        base, cut_polys, engrave_polys = _compute_final(p)
-        if not cut_polys:
+        base, cut_polys, engrave_polys, bevel_polys = _compute_final(p)
+        if not (cut_polys or bevel_polys):
             continue
         total_area += geo.area_m2(base)
         items.append({
@@ -225,6 +225,7 @@ def _boat_nested(pieces: List[dict]) -> dict:
             "name": p.get("piece_name") or p.get("name") or "Pezzo",
             "cut": cut_polys,
             "engrave": engrave_polys,
+            "bevel": bevel_polys,
         })
     nested = nesting.nest_pieces(items)
     nested["total_area_m2"] = total_area
@@ -261,7 +262,7 @@ async def boat_nested_dxf(boat_id: str):
     nested = await run_in_threadpool(_boat_nested, pieces)
     if nested.get("count", 0) == 0:
         raise HTTPException(status_code=422, detail="Nessun pezzo pronto da annidare")
-    dxf_bytes = await run_in_threadpool(build_dxf, nested["cut"], nested["engrave"])
+    dxf_bytes = await run_in_threadpool(build_dxf, nested["cut"], nested["engrave"], nested.get("bevel"))
     dpath = f"{store.APP_NAME}/dxf/{boat_id}/nested_{uuid.uuid4()}.dxf"
     await run_in_threadpool(store.put_object, dpath, dxf_bytes, "application/dxf")
     return {
@@ -880,6 +881,7 @@ async def geometry_fill(req: FillRequest):
             geo.fill_pattern, req.contour, req.spacing_mm, req.angle_deg, req.pattern,
             req.style, req.border_mm, req.groove_mm, req.auto_angle, req.board_length_mm,
             req.exclude, req.exclude_margin_mm, req.diamond_height_mm,
+            req.corner_radius_mm, req.plank_ease_mm,
         )
     except Exception as e:  # noqa: BLE001
         logger.exception("fill_pattern failed (exclude=%d, margin=%s, style=%s, groove=%s)",
@@ -908,8 +910,9 @@ def _compute_final(doc: dict):
 
     cut_polys: List[List[List[float]]] = []
     engrave_polys: List[List[List[float]]] = []
+    bevel_polys: List[List[List[float]]] = []
     if base:
-        cut_polys.append(base)
+        bevel_polys.append(base)  # outer perimeter → separate bevel layer (larger V-bit)
 
     for el in doc.get("elements", []):
         layer = el.get("layer", "ENGRAVE")
@@ -918,20 +921,20 @@ def _compute_final(doc: dict):
             if len(poly) >= 2:
                 target.append(poly)
 
-    return base, cut_polys, engrave_polys
+    return base, cut_polys, engrave_polys, bevel_polys
 
 
 @api_router.get("/projects/{project_id}/preview")
 async def preview_project(project_id: str):
     doc = await get_project_doc(project_id)
-    base, cut_polys, engrave_polys = _compute_final(doc)
+    base, cut_polys, engrave_polys, bevel_polys = _compute_final(doc)
     bb = geo.bbox_mm(base)
     return {
-        "cut": cut_polys,
+        "cut": bevel_polys + cut_polys,
         "engrave": engrave_polys,
         "bbox": bb,
         "perimeter_mm": geo.perimeter_mm(base),
-        "cut_count": len(cut_polys),
+        "cut_count": len(bevel_polys) + len(cut_polys),
         "engrave_count": len(engrave_polys),
     }
 
@@ -943,8 +946,8 @@ TIPO_LABEL = {"diamond": "Diamante", "cross": "Incrociato", "lines": "Listelli"}
 async def techsheet_project(project_id: str, body: dict = None):
     body = body or {}
     doc = await get_project_doc(project_id)
-    base, cut_polys, engrave_polys = _compute_final(doc)
-    if not cut_polys:
+    base, cut_polys, engrave_polys, bevel_polys = _compute_final(doc)
+    if not (cut_polys or bevel_polys):
         raise HTTPException(status_code=422, detail="Nessuna dima da riportare in scheda")
 
     # tipo derived from first fill element pattern
@@ -964,7 +967,7 @@ async def techsheet_project(project_id: str, body: dict = None):
         "color": body.get("color") or "",
         "area_m2": geo.area_m2(base),
     }
-    pdf = await run_in_threadpool(techsheet.render_sheet, cut_polys, engrave_polys, meta)
+    pdf = await run_in_threadpool(techsheet.render_sheet, bevel_polys + cut_polys, engrave_polys, meta)
     spath = f"{store.APP_NAME}/techsheet/{project_id}/{uuid.uuid4()}.pdf"
     await run_in_threadpool(store.put_object, spath, pdf, "application/pdf")
     return {"sheet_url": file_url(spath), "size": len(pdf), "area_m2": meta["area_m2"]}
@@ -973,10 +976,10 @@ async def techsheet_project(project_id: str, body: dict = None):
 @api_router.post("/projects/{project_id}/export")
 async def export_project(project_id: str):
     doc = await get_project_doc(project_id)
-    _, cut_polys, engrave_polys = _compute_final(doc)
-    if not cut_polys and not engrave_polys:
+    _, cut_polys, engrave_polys, bevel_polys = _compute_final(doc)
+    if not cut_polys and not engrave_polys and not bevel_polys:
         raise HTTPException(status_code=422, detail="Nessuna geometria da esportare")
-    dxf_bytes = await run_in_threadpool(build_dxf, cut_polys, engrave_polys)
+    dxf_bytes = await run_in_threadpool(build_dxf, cut_polys, engrave_polys, bevel_polys)
     dpath = f"{store.APP_NAME}/dxf/{project_id}/{uuid.uuid4()}.dxf"
     await run_in_threadpool(store.put_object, dpath, dxf_bytes, "application/dxf")
     await db.projects.update_one(
@@ -989,9 +992,10 @@ async def export_project(project_id: str):
 @api_router.post("/projects/{project_id}/export/{fmt}")
 async def export_project_format(project_id: str, fmt: str, body: dict = None):
     doc = await get_project_doc(project_id)
-    _, cut_polys, engrave_polys = _compute_final(doc)
+    _, cut_polys, engrave_polys, bevel_polys = _compute_final(doc)
     if (body or {}).get("cut_only"):
         engrave_polys = []
+    cut_polys = bevel_polys + cut_polys
     if not cut_polys and not engrave_polys:
         raise HTTPException(status_code=422, detail="Nessuna geometria da esportare")
     try:

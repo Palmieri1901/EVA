@@ -100,7 +100,7 @@ def nest_pieces(pieces: List[dict], sheet_w: float = SHEET_W_MM,
                 allow_rotate: bool = True) -> dict:
     items = []
     for p in pieces:
-        allp = (p.get("cut") or []) + (p.get("engrave") or [])
+        allp = (p.get("cut") or []) + (p.get("engrave") or []) + (p.get("bevel") or [])
         if not allp:
             continue
         minx, miny, maxx, maxy = _bbox(allp)
@@ -108,9 +108,11 @@ def nest_pieces(pieces: List[dict], sheet_w: float = SHEET_W_MM,
         h = max(maxy - miny, 1.0)
         cut0 = [[[pt[0] - minx, pt[1] - miny] for pt in poly] for poly in (p.get("cut") or [])]
         eng0 = [[[pt[0] - minx, pt[1] - miny] for pt in poly] for poly in (p.get("engrave") or [])]
-        area = sum(_poly_area(poly) for poly in cut0) or (w * h)
+        bev0 = [[[pt[0] - minx, pt[1] - miny] for pt in poly] for poly in (p.get("bevel") or [])]
+        area = sum(_poly_area(poly) for poly in (bev0 or cut0)) or (w * h)
         items.append({"id": p.get("id"), "name": p.get("name", ""),
-                      "cut": cut0, "engrave": eng0, "w": w, "h": h, "area": area})
+                      "cut": cut0, "engrave": eng0, "bevel": bev0,
+                      "w": w, "h": h, "area": area})
     items.sort(key=lambda it: max(it["w"], it["h"]) * (it["w"] * it["h"]), reverse=True)
 
     # multi-bin packing: open a new sheet whenever a part doesn't fit the open ones
@@ -155,6 +157,7 @@ def nest_pieces(pieces: List[dict], sheet_w: float = SHEET_W_MM,
     out_sheets = []
     all_cut: List[Poly] = []
     all_engrave: List[Poly] = []
+    all_bevel: List[Poly] = []
     max_used_h = 0.0
     total_part_area = 0.0
     any_oversize = False
@@ -164,34 +167,40 @@ def nest_pieces(pieces: List[dict], sheet_w: float = SHEET_W_MM,
         s_pieces = []
         s_cut: List[Poly] = []
         s_eng: List[Poly] = []
+        s_bev: List[Poly] = []
         s_used_h = 0.0
         s_area = 0.0
         for it in sh["placed"]:
             x, y, rotated = it["x"], it["y"], it["rotated"]
             cut, eng, w, h = it["cut"], it["engrave"], it["w"], it["h"]
+            bev = it.get("bevel", [])
             if rotated:
                 cut = rot90(cut, h)
                 eng = rot90(eng, h)
+                bev = rot90(bev, h)
                 w, h = h, w
             # local (per-sheet) geometry
             c_local = translate(cut, x, y)
             e_local = translate(eng, x, y)
+            b_local = translate(bev, x, y)
             s_cut += c_local
             s_eng += e_local
+            s_bev += b_local
             # combined geometry (sheet offset applied)
             all_cut += translate(cut, x + x_off, y)
             all_engrave += translate(eng, x + x_off, y)
+            all_bevel += translate(bev, x + x_off, y)
             s_used_h = max(s_used_h, y + h)
             s_area += it["area"]
             if it.get("oversize"):
                 any_oversize = True
             s_pieces.append({"id": it["id"], "name": it["name"], "cut": c_local,
-                             "engrave": e_local, "x": x, "y": y, "w": w, "h": h,
+                             "engrave": e_local, "bevel": b_local, "x": x, "y": y, "w": w, "h": h,
                              "rotated": rotated, "oversize": it.get("oversize", False),
                              "sheet": si})
         util = (s_area / (sheet_w * max(s_used_h, 1.0))) if s_used_h > 0 else 0.0
         out_sheets.append({"index": si, "pieces": s_pieces, "cut": s_cut, "engrave": s_eng,
-                           "used_h": s_used_h, "utilization": util,
+                           "bevel": s_bev, "used_h": s_used_h, "utilization": util,
                            "sheet_w": sheet_w, "sheet_h": sheet_h})
         max_used_h = max(max_used_h, s_used_h)
         total_part_area += s_area
@@ -206,6 +215,7 @@ def nest_pieces(pieces: List[dict], sheet_w: float = SHEET_W_MM,
         "pieces": all_pieces,          # backward-compat: all pieces (local per-sheet coords)
         "cut": all_cut,                # combined, sheets side-by-side (for nested DXF)
         "engrave": all_engrave,
+        "bevel": all_bevel,
         "used_w": sheet_w,
         "used_h": max_used_h,
         "sheet_w": sheet_w,

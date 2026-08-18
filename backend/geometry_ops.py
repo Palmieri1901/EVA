@@ -422,7 +422,8 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
                  border_mm: float = 30.0, groove_mm: float = 0.0,
                  auto_angle: bool = False, board_length_mm: float = 0.0,
                  exclude: List[Poly] = None, exclude_margin_mm: float = 0.0,
-                 diamond_height_mm: float = 0.0) -> dict:
+                 diamond_height_mm: float = 0.0, corner_radius_mm: float = 0.0,
+                 plank_ease_mm: float = 0.0) -> dict:
     poly = _ring(contour)
     if not poly.is_valid or poly.is_empty:
         poly = poly.buffer(0)
@@ -443,7 +444,7 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
         # opening) so corners/curves look like real teak mat borders in the photos.
         inset = poly.buffer(-border_mm, join_style=1, resolution=24)
         if not inset.is_empty:
-            R = min(border_mm * 1.5, 70.0)
+            R = corner_radius_mm if (corner_radius_mm and corner_radius_mm > 0) else min(border_mm * 1.5, 70.0)
             if R > 1:
                 opened = inset.buffer(-R, join_style=1, resolution=24).buffer(R, join_style=1, resolution=24)
                 if not opened.is_empty and opened.area > inset.area * 0.4:
@@ -470,6 +471,16 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
             return {"pattern": [], "border": border_lines + keep_rings, "angle_used": angle_deg}
 
     lines: List[Poly] = []
+    # "Doghe svasate": plank ends eased back from the border with a rounded set-back
+    # so they don't hard-butt the frame, like real teak. Applies to planks/lines only.
+    plank_field = field
+    if plank_ease_mm and plank_ease_mm > 0 and pattern not in ("diamond", "cross"):
+        try:
+            pf = field.buffer(-plank_ease_mm, join_style=1, resolution=16)
+            if not pf.is_empty and pf.area > field.area * 0.3:
+                plank_field = pf
+        except Exception:  # noqa: BLE001
+            pass
     if pattern == "diamond":
         # Diamond (rhombus) grid of width W and height H. The two edge families run
         # at +/- theta from the orientation angle, where theta = atan2(H, W); their
@@ -488,9 +499,9 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
         lines += _hatch(field, spacing, angle_deg + 90)
     else:  # lines / planks
         if board_length_mm and board_length_mm > 0:
-            lines += _staggered_planks(field, spacing, angle_deg, board_length_mm, 0.5)
+            lines += _staggered_planks(plank_field, spacing, angle_deg, board_length_mm, 0.5)
         else:
-            lines += _hatch(field, spacing, angle_deg)
+            lines += _hatch(plank_field, spacing, angle_deg)
 
     # Caulking groove: turn centerlines (and border + keep-out outline) into thin channel pockets.
     if groove_mm and groove_mm > 0:

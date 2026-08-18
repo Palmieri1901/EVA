@@ -8,7 +8,8 @@ import ezdxf
 from ezdxf import units
 
 
-def build_dxf(cut_polys: List[List[List[float]]], engrave_polys: List[List[List[float]]]) -> bytes:
+def build_dxf(cut_polys: List[List[List[float]]], engrave_polys: List[List[List[float]]],
+              bevel_polys: List[List[List[float]]] | None = None) -> bytes:
     doc = ezdxf.new("R2010")
     doc.units = units.MM
     doc.header["$INSUNITS"] = 4  # millimeters
@@ -18,6 +19,8 @@ def build_dxf(cut_polys: List[List[List[float]]], engrave_polys: List[List[List[
         doc.layers.add("CUT", color=1)  # red
     if "ENGRAVE" not in doc.layers:
         doc.layers.add("ENGRAVE", color=5)  # blue
+    if "SVASO_EST" not in doc.layers:
+        doc.layers.add("SVASO_EST", color=3)  # green — outer bevel (larger V-bit)
 
     msp = doc.modelspace()
 
@@ -27,6 +30,9 @@ def build_dxf(cut_polys: List[List[List[float]]], engrave_polys: List[List[List[
         pts = [(float(p[0]), float(p[1])) for p in points]
         msp.add_lwpolyline(pts, close=close, dxfattribs={"layer": layer})
 
+    # outer perimeter bevel: separate layer (cut with a different, larger V-bit)
+    for poly in (bevel_polys or []):
+        add_poly(poly, "SVASO_EST", close=True)
     for poly in cut_polys:
         add_poly(poly, "CUT", close=True)
     for poly in engrave_polys:

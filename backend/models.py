@@ -193,4 +193,6 @@ class FillRequest(BaseModel):
     diamond_height_mm: float = 0.0  # diamond cell height (0 = square diamonds = spacing)
     exclude: List[List[List[float]]] = Field(default_factory=list)  # text/logo polylines to keep clear
     exclude_margin_mm: float = 0.0  # clear halo around excluded elements
+    corner_radius_mm: float = 0.0  # border corner rounding radius (0 = auto)
+    plank_ease_mm: float = 0.0     # rounded set-back of plank ends from the border
     layer: str = "ENGRAVE"

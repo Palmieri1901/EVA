@@ -5,6 +5,21 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06o) — Raggio angoli regolabile, doghe svasate, layer bordo esterno separato
+- `geometry_ops.fill_pattern`: nuovi param `corner_radius_mm` (raggio arrotondamento bordatura,
+  0=auto) e `plank_ease_mm` (svaso/arretramento tondo delle estremità doghe dal bordo; solo pattern
+  lines, campo generato su `plank_field = field.buffer(-ease, round)`). Passati da `FillRequest` +
+  endpoint `/geometry/fill`.
+- Frontend `editor/[id].tsx`: nuovi campi RIEMPI "Raggio angoli bordatura" (stile bordato) e
+  "Svaso estremità doghe" (pattern righe); salvati in `element.params` (cornerRadius/plankEase),
+  usati anche da `rebuildFills`; preset TEAK usa cornerRadius 60 + plankEase 8.
+- Bordo esterno su LAYER dedicato: `dxf_builder.build_dxf(cut, engrave, bevel)` aggiunge layer
+  **SVASO_EST** (verde) per il contorno del tappeto (fresa a V più grande). `_compute_final` ora
+  restituisce 4 valori (base, cut, engrave, bevel) con il contorno FUORI da cut. Aggiornati tutti i
+  call site (preview/techsheet/export/nested). Il nester propaga lo stream `bevel` per il DXF unico.
+- Verificato: export singolo e nested-DXF contengono il layer SVASO_EST col contorno; fill accetta
+  i nuovi parametri; editor carica e mostra i campi condizionali.
+
 ## Feature (2026-06n) — Bordatura realistica teak: angoli arrotondati + solchi miter d'angolo
 - `geometry_ops.fill_pattern` (stile "bordato"): l'inset del bordo ora usa `join_style=1` (round) +
   opening morfologico (raggio ~1.5·border, max 70mm) → cornice con ANGOLI ARROTONDATI che seguono
