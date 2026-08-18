@@ -5,6 +5,18 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06n) — Bordatura realistica teak: angoli arrotondati + solchi miter d'angolo
+- `geometry_ops.fill_pattern` (stile "bordato"): l'inset del bordo ora usa `join_style=1` (round) +
+  opening morfologico (raggio ~1.5·border, max 70mm) → cornice con ANGOLI ARROTONDATI che seguono
+  contorno e curve come nelle foto reali.
+- Nuova `_corner_grooves(contour, inset, border)`: solco di MITER ad ogni angolo (dal vertice del
+  contorno, rilevato via `simplify`, al punto più vicino sul bordo interno) → "la bordatura prevede
+  dei solchi per ogni angolo". Aggiunti a `border` (esportati sullo stesso layer del fill: engrave/cut).
+- Solchi a V = linee singole centerline (groove_mm=0) adatte a fresa a V; con groove_mm>0 diventano
+  canali. Il layer del riempimento (INCISIONE/TAGLIO) resta selezionabile nel modale RIEMPI.
+- Verificato: rigenerato Pezzo 1 → cornice tonda + 6 solchi d'angolo visibili nel render, come le foto.
+  NB: si applica ai fill NUOVI/rigenerati; i pezzi esistenti vanno ri-riempiti (RIEMPI) per ottenerlo.
+
 ## Feature (2026-06m) — Editor: GIUNZIONE (taglio/seam dritto, tappeto adesivo)
 - Nuovo tipo elemento "GIUNZIONE" nel modale AGGIUNGI: genera una LINEA DRITTA (non dentellata —
   il tappeto è adesivo, non serve incastro meccanico) forzata su layer CUT. Sembra un'incisione ma

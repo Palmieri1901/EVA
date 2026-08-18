@@ -11,7 +11,7 @@ matplotlib.use("Agg")
 import math  # noqa: E402
 from matplotlib.font_manager import FontProperties  # noqa: E402
 from matplotlib.textpath import TextPath  # noqa: E402
-from shapely.geometry import LineString, Polygon  # noqa: E402
+from shapely.geometry import LineString, Point, Polygon  # noqa: E402
 from shapely.ops import unary_union  # noqa: E402
 from svgpathtools import parse_path  # noqa: E402
 
@@ -382,6 +382,41 @@ def _build_keepout(exclude: List[Poly], margin: float):
     return zone
 
 
+def _corner_grooves(contour_poly, inset_poly, border_mm: float,
+                    min_turn_deg: float = 22.0) -> List[Poly]:
+    """Miter grooves at each corner of the border frame: a short groove from the
+    contour corner across the border band to the inner border, like real teak
+    mats. Rounded corners are detected via simplification of the contour."""
+    grooves: List[Poly] = []
+    try:
+        simp = contour_poly.simplify(max(border_mm * 0.6, 8.0), preserve_topology=True)
+        ext = list(simp.exterior.coords)[:-1]
+    except Exception:
+        return grooves
+    n = len(ext)
+    if n < 3:
+        return grooves
+    iring = inset_poly.exterior
+    for i in range(n):
+        a, b, c = ext[(i - 1) % n], ext[i], ext[(i + 1) % n]
+        d1x, d1y = b[0] - a[0], b[1] - a[1]
+        d2x, d2y = c[0] - b[0], c[1] - b[1]
+        l1 = math.hypot(d1x, d1y); l2 = math.hypot(d2x, d2y)
+        if l1 < 1e-6 or l2 < 1e-6:
+            continue
+        cross = (d1x * d2y - d1y * d2x) / (l1 * l2)
+        dot = (d1x * d2x + d1y * d2y) / (l1 * l2)
+        turn = abs(math.degrees(math.atan2(cross, dot)))
+        if turn < min_turn_deg:
+            continue
+        pt = Point(b)
+        proj = iring.interpolate(iring.project(pt))
+        if pt.distance(proj) > 3.0:
+            grooves.append([[b[0], b[1]], [proj.x, proj.y]])
+    return grooves
+
+
+
 def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
                  pattern: str = "diamond", style: str = "semplice",
                  border_mm: float = 30.0, groove_mm: float = 0.0,
@@ -404,11 +439,20 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
     field = poly
 
     if style == "bordato" and border_mm > 0:
-        inset = poly.buffer(-border_mm, join_style=2)
+        # inset border that follows the contour; round its corners (morphological
+        # opening) so corners/curves look like real teak mat borders in the photos.
+        inset = poly.buffer(-border_mm, join_style=1, resolution=24)
         if not inset.is_empty:
+            R = min(border_mm * 1.5, 70.0)
+            if R > 1:
+                opened = inset.buffer(-R, join_style=1, resolution=24).buffer(R, join_style=1, resolution=24)
+                if not opened.is_empty and opened.area > inset.area * 0.4:
+                    inset = opened
             if inset.geom_type == "MultiPolygon":
                 inset = max(inset.geoms, key=lambda g: g.area)
             border_lines = _poly_exteriors(inset)
+            # miter grooves at every corner of the frame (like real teak mats)
+            border_lines += _corner_grooves(orig_poly, inset, border_mm)
             field = inset
 
     # Clear zone around text/logo: subtract keep-out from the hatch field,
