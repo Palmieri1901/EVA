@@ -1,5 +1,6 @@
-"""Render an A4 overview PDF of a boat: all mat pieces auto-arranged (nested)
-on the EVA sheet, each labeled with its name and size. Single panoramic page.
+"""Render an overview PDF of a boat: all mat pieces auto-arranged (nested) on
+EVA sheets, each labeled with its name and size. One page per EVA sheet when the
+pieces span multiple sheets.
 """
 from __future__ import annotations
 
@@ -10,13 +11,14 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
 
 # A4 portrait in mm
 PW, PH = 210.0, 297.0
 
 
-def render_assembly(nested: dict, meta: dict) -> bytes:
+def _draw_sheet(pdf: PdfPages, sheet: dict, meta: dict, page_idx: int, page_total: int) -> None:
     fig = plt.figure(figsize=(PW / 25.4, PH / 25.4), dpi=200)
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_xlim(0, PW)
@@ -31,18 +33,19 @@ def render_assembly(nested: dict, meta: dict) -> bytes:
     # header
     ax.text(PW / 2, 20, meta.get("boat_name", "IMBARCAZIONE"), ha="center", va="center",
             fontsize=13, fontweight="bold")
-    ax.text(PW / 2, 28, "LAYOUT PEZZI ASSEMBLATI — FOGLIO EVA", ha="center", va="center", fontsize=8)
+    ax.text(PW / 2, 28, f"LAYOUT PEZZI ASSEMBLATI — FOGLIO {page_idx + 1}/{page_total}",
+            ha="center", va="center", fontsize=8)
     ax.text(14, 34, meta.get("date", ""), ha="left", va="center", fontsize=7)
-    n = nested.get("count", 0)
-    util = nested.get("utilization", 0.0) * 100.0
-    uh = nested.get("used_h", 0.0)
-    ax.text(PW - 14, 34, f"{n} pezzi · {meta.get('total_area_m2', 0):.2f} mq · resa {util:.0f}% · lungh. usata {int(uh)} mm",
+
+    n = len(sheet.get("pieces", []))
+    util = sheet.get("utilization", 0.0) * 100.0
+    uh = sheet.get("used_h", 0.0)
+    ax.text(PW - 14, 34, f"{n} pezzi · resa {util:.0f}% · lungh. usata {int(uh)} mm",
             ha="right", va="center", fontsize=7, fontweight="bold")
 
-    sheet_w = nested.get("sheet_w", 1200.0)
-    sheet_h = nested.get("sheet_h", 3000.0)
+    sheet_w = sheet.get("sheet_w", 900.0)
+    sheet_h = sheet.get("sheet_h", 2400.0)
 
-    # drawing region on page
     rx0, ry0, rw, rh = 14.0, 40.0, PW - 28.0, PH - 66.0
     s = min(rw / sheet_w, rh / sheet_h)
     ox = rx0 + (rw - sheet_w * s) / 2
@@ -51,18 +54,11 @@ def render_assembly(nested: dict, meta: dict) -> bytes:
     def tx(pt):
         return (ox + pt[0] * s, oy + pt[1] * s)
 
-    # sheet outline (full 1200 x 3000)
     ax.add_patch(Rectangle((ox, oy), sheet_w * s, sheet_h * s, fill=False, lw=1.2, ec="#444444"))
     ax.text(ox + sheet_w * s / 2, oy - 2, f"Foglio EVA {int(sheet_w)} × {int(sheet_h)} mm",
             ha="center", va="bottom", fontsize=6, color="#444444")
 
-    # overflow marker
-    if nested.get("overflow"):
-        ax.text(ox + sheet_w * s / 2, oy + sheet_h * s + 4,
-                "⚠ I pezzi superano un singolo foglio", ha="center", va="top",
-                fontsize=7, color="#B00000", fontweight="bold")
-
-    for pc in nested.get("pieces", []):
+    for pc in sheet.get("pieces", []):
         for poly in pc.get("engrave", []):
             xs = [tx(p)[0] for p in poly]
             ys = [tx(p)[1] for p in poly]
@@ -71,19 +67,40 @@ def render_assembly(nested: dict, meta: dict) -> bytes:
             xs = [tx(p)[0] for p in poly]
             ys = [tx(p)[1] for p in poly]
             ax.plot(xs, ys, color="black", lw=1.0, solid_capstyle="round")
-        # label at piece center
         cx = pc["x"] + pc["w"] / 2
         cy = pc["y"] + pc["h"] / 2
         px, py = tx([cx, cy])
-        ax.text(px, py, pc.get("name", ""), ha="center", va="center", fontsize=7,
+        label = pc.get("name", "")
+        if pc.get("rotated"):
+            label += " ⟳"
+        ax.text(px, py, label, ha="center", va="center", fontsize=7,
                 fontweight="bold", color="#B84A00",
                 bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="#B84A00", lw=0.6, alpha=0.85))
-        # size under the piece
         px2, py2 = tx([cx, pc["y"] + pc["h"]])
         ax.text(px2, py2 + 3, f"{int(pc['w'])}×{int(pc['h'])}", ha="center", va="top",
                 fontsize=5, color="#666666")
+        if pc.get("oversize"):
+            ax.text(px, py + 6, "⚠ supera il foglio", ha="center", va="top",
+                    fontsize=5, color="#B00000", fontweight="bold")
 
-    buf = io.BytesIO()
-    fig.savefig(buf, format="pdf")
+    pdf.savefig(fig)
     plt.close(fig)
+
+
+def render_assembly(nested: dict, meta: dict) -> bytes:
+    sheets = nested.get("sheets")
+    if not sheets:
+        # fallback: wrap the flat structure as a single sheet
+        sheets = [{
+            "pieces": nested.get("pieces", []),
+            "used_h": nested.get("used_h", 0.0),
+            "utilization": nested.get("utilization", 0.0),
+            "sheet_w": nested.get("sheet_w", 900.0),
+            "sheet_h": nested.get("sheet_h", 2400.0),
+        }]
+    total = len(sheets)
+    buf = io.BytesIO()
+    with PdfPages(buf) as pdf:
+        for i, sh in enumerate(sheets):
+            _draw_sheet(pdf, sh, meta, i, total)
     return buf.getvalue()

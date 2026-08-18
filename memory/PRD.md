@@ -5,6 +5,18 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06j) — Nesting su PIÙ FOGLI numerati (auto-overflow oltre 2400mm)
+- `nesting.py` ora multi-bin: quando un pezzo non entra nei fogli aperti (900×2400) ne apre uno nuovo.
+  Ritorna `sheets` (lista per foglio con pieces/cut/engrave/used_h/utilization locali), `sheet_count`,
+  `cut`/`engrave` combinati con i fogli affiancati (offset X = idx*(900+120)) per il DXF unico, e flag
+  `oversize` per pezzi più grandi di un intero foglio. Pezzi ruotati marcati `rotated`.
+- `assembly.py` riscritto con `PdfPages`: UNA PAGINA PER FOGLIO, titolo "FOGLIO k/N", resa e lungh. usata
+  per foglio, "⟳" sui pezzi ruotati, "⚠ supera il foglio" sugli oversize.
+- `server.py`: risposte assembly e nested-dxf espongono `sheet_count` (+ `utilization`).
+- `boat/[id].tsx` + `api.ts`: il toast informa "N fogli" e "una pagina PDF per foglio".
+- Verificato: 8×(850×500) → 2 fogli (4+4), PDF a 2 pagine FOGLIO 1/2 e 2/2, ogni pezzo entro 900×2400,
+  resa 92%/foglio. Boat "630" (3 pezzi) resta 1 foglio.
+
 ## Feature (2026-06i) — Nesting AVANZATO sul foglio EVA 900×2400 (meno spreco)
 - `nesting.py` riscritto: da shelf/first-fit a **MaxRects (Best-Short-Side-Fit)** con **rotazione 90°**
   opzionale, scoring che minimizza l'altezza usata (bottom-left) in un bin a larghezza fissa 900mm e

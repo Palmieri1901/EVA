@@ -250,6 +250,7 @@ async def boat_assembly(boat_id: str):
     return {
         "sheet_url": file_url(spath), "size": len(pdf), "count": nested["count"],
         "overflow": nested.get("overflow", False), "total_area_m2": nested.get("total_area_m2", 0.0),
+        "sheet_count": nested.get("sheet_count", 1), "utilization": nested.get("utilization", 0.0),
     }
 
 
@@ -265,7 +266,7 @@ async def boat_nested_dxf(boat_id: str):
     await run_in_threadpool(store.put_object, dpath, dxf_bytes, "application/dxf")
     return {
         "dxf_url": file_url(dpath), "size": len(dxf_bytes), "count": nested["count"],
-        "overflow": nested.get("overflow", False),
+        "overflow": nested.get("overflow", False), "sheet_count": nested.get("sheet_count", 1),
     }
 
 

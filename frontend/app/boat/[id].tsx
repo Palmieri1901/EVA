@@ -105,9 +105,12 @@ export default function BoatDetail() {
     setPdfBusy(true);
     try {
       const res = await api.boatAssembly(id);
+      const fogli = res.sheet_count > 1 ? ` · ${res.sheet_count} fogli` : "";
       await shareFile(absUrl(res.sheet_url)!, `assemblato_${id}.pdf`, "application/pdf", toast,
-        `PDF assemblato · ${res.count} pezzi · ${res.total_area_m2.toFixed(2)} mq`);
-      if (res.overflow) toast("⚠ I pezzi superano un foglio EVA (90×240)", "info");
+        `PDF assemblato · ${res.count} pezzi · ${res.total_area_m2.toFixed(2)} mq${fogli}`);
+      if (res.sheet_count > 1)
+        toast(`I pezzi occupano ${res.sheet_count} fogli EVA (una pagina PDF per foglio)`, "info");
+      else if (res.overflow) toast("⚠ Alcuni pezzi superano il foglio EVA (90×240)", "info");
     } catch (e: any) {
       toast(e.message || "PDF assemblato fallito", "error");
     } finally {

@@ -134,7 +134,7 @@ export const api = {
   updateBoat: (id: string, body: any): Promise<BoatT> =>
     req(`/boats/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteBoat: (id: string) => req(`/boats/${id}`, { method: "DELETE" }),
-  boatAssembly: (id: string): Promise<{ sheet_url: string; size: number; count: number; overflow: boolean; total_area_m2: number }> =>
+  boatAssembly: (id: string): Promise<{ sheet_url: string; size: number; count: number; overflow: boolean; total_area_m2: number; sheet_count: number; utilization: number }> =>
     req(`/boats/${id}/assembly`),
   boatNestedDxf: (id: string): Promise<{ dxf_url: string; size: number; count: number; overflow: boolean }> =>
     req(`/boats/${id}/nested-dxf`, { method: "POST" }),
