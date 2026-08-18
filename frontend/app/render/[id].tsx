@@ -142,9 +142,12 @@ export default function BoatRender() {
   const piecesRef = useRef(pieces); piecesRef.current = pieces;
   const fitRef = useRef(fit); fitRef.current = fit;
   const dragRef = useRef<{ id: string; sx: number; sy: number } | null>(null);
+  const rotRef = useRef<{ id: string; startRot: number; startAngle: number } | null>(null);
   const canvasRef = useRef<View>(null);
   const canvasPage = useRef({ x: 0, y: 0 });
   const measureCanvas = () => canvasRef.current?.measureInWindow((x, y) => { canvasPage.current = { x, y }; });
+  const touchAngle = (t: any[]) =>
+    (Math.atan2(t[1].pageY - t[0].pageY, t[1].pageX - t[0].pageX) * 180) / Math.PI;
 
   const pan = useRef(
     PanResponder.create({
@@ -165,18 +168,38 @@ export default function BoatRender() {
           if (pointInPoly(lx, ly, scr)) { hit = ps[i].id; break; }
         }
         setSel(hit);
+        rotRef.current = null;
         if (hit) {
           const p = ps.find((x) => x.id === hit)!;
           dragRef.current = { id: hit, sx: p._lx, sy: p._ly };
         } else dragRef.current = null;
       },
-      onPanResponderMove: (_e, gs) => {
-        const d = dragRef.current; const f = fitRef.current;
-        if (!d || !f) return;
+      onPanResponderMove: (e, gs) => {
+        const f = fitRef.current; if (!f) return;
+        const touches = (e.nativeEvent.touches || []) as any[];
+        // TWO-FINGER ROTATION of the grabbed/selected piece around its centroid
+        if (touches.length >= 2) {
+          const id = dragRef.current?.id;
+          if (!id) return;
+          const ang = touchAngle(touches);
+          if (!rotRef.current || rotRef.current.id !== id) {
+            const p = piecesRef.current.find((x) => x.id === id);
+            rotRef.current = { id, startRot: p?._rot ?? 0, startAngle: ang };
+            return;
+          }
+          const delta = ang - rotRef.current.startAngle;
+          const nrot = Math.round((rotRef.current.startRot + delta) % 360);
+          setPieces((prev) => prev.map((p) => (p.id === id ? { ...p, _rot: nrot } : p)));
+          return;
+        }
+        // SINGLE-FINGER DRAG
+        rotRef.current = null;
+        const d = dragRef.current;
+        if (!d) return;
         setPieces((prev) => prev.map((p) => p.id === d.id
           ? { ...p, _lx: d.sx + gs.dx / f.s, _ly: d.sy + gs.dy / f.s } : p));
       },
-      onPanResponderRelease: () => { dragRef.current = null; Haptics.selectionAsync().catch(() => {}); },
+      onPanResponderRelease: () => { dragRef.current = null; rotRef.current = null; Haptics.selectionAsync().catch(() => {}); },
     })
   ).current;
 
@@ -278,7 +301,7 @@ export default function BoatRender() {
                 <Text style={styles.warnTxt}>PEZZI SOVRAPPOSTI</Text>
               </View>
             )}
-            <Text style={styles.canvasHint}>Trascina i pezzi per comporre il piano · Tocca un pezzo per i colori</Text>
+            <Text style={styles.canvasHint}>Trascina per spostare · Due dita per ruotare · Tocca per i colori</Text>
           </View>
 
           <ScrollView style={styles.panel} contentContainerStyle={{ padding: space.lg, paddingBottom: insets.bottom + 20 }}>

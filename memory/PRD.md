@@ -5,6 +5,14 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06c) — Rendering barca: ROTAZIONE a due dita sulla tela
+- Nel PanResponder di `render/[id].tsx`, in `onPanResponderMove` leggo `e.nativeEvent.touches`:
+  con ≥2 dita ruoto il pezzo afferrato/selezionato attorno al suo centroide in base al delta
+  dell'angolo tra le due dita (`rotRef` memorizza id, `_rot` iniziale e angolo iniziale). Con 1 dito
+  resta il drag di spostamento. `onPanResponderRelease` azzera drag+rot. Hint tela aggiornato
+  ("Trascina per spostare · Due dita per ruotare · Tocca per i colori"). I pulsanti RUOTA nel pannello
+  restano come alternativa. NB: gesture multitouch → testabile su dispositivo/Expo Go, non col mouse.
+
 ## Fix (2026-06b) — Rendering barca: drag pezzi non funzionava su touch (rimbalzo/nessuno spostamento)
 - CAUSA 1: `fit` era un `useMemo([pieces])` → ad ogni move ricalcolava e ri-centrava la vista (rientro).
   FIX: `fit` è ora uno `state` calcolato UNA VOLTA per caricamento; `load()` lo resetta a null.
