@@ -5,6 +5,20 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Fix (2026-06b) — Rendering barca: drag pezzi non funzionava su touch (rimbalzo/nessuno spostamento)
+- CAUSA 1: `fit` era un `useMemo([pieces])` → ad ogni move ricalcolava e ri-centrava la vista (rientro).
+  FIX: `fit` è ora uno `state` calcolato UNA VOLTA per caricamento; `load()` lo resetta a null.
+- CAUSA 2: l'hit-test usava `nativeEvent.locationX` che su touch è relativo al figlio toccato
+  (l'`<Svg>`/`<Polygon>`), non alla View col PanResponder → selezione sbagliata o pezzo che non si
+  muoveva. FIX: hit-test con coordinate di PAGINA `gestureState.x0/y0` meno l'offset della canvas
+  misurato con `measureInWindow` (`canvasRef`, aggiornato in onLayout). `<Svg pointerEvents="none">`
+  così i tocchi arrivano sempre alla canvas. Verificato: offset misurato {0,52}, pezzo trascinato
+  e mantenuto in posizione, nessun rientro.
+- FEATURE: "PEZZI SOVRAPPOSTI" — rilevo le sovrapposizioni tra pezzi (contenimento vertice + incrocio
+  bordi in coord mondo); i pezzi sovrapposti hanno bordo ROSSO tratteggiato + banner di avviso.
+- FEATURE: pulsante "ADATTA VISTA" (icona maximize in alto a destra della tela) ri-centra e rifitta
+  tutti i pezzi (`setFit(computeFit(...))`).
+
 ## Fix (2026-06) — Rendering barca: i pezzi tornavano alla posizione iniziale durante il drag
 - BUG: in `render/[id].tsx` la trasformazione della vista `fit` era un `useMemo([pieces, cw])`;
   ad ogni `onPanResponderMove` (che aggiorna `pieces`) il bounding box del mondo veniva ricalcolato

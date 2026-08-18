@@ -47,6 +47,27 @@ function pointInPoly(px: number, py: number, poly: number[][]) {
   }
   return inside;
 }
+function segInter(a: number[], b: number[], c: number[], d: number[]) {
+  const d1 = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const d2 = (b[0] - a[0]) * (d[1] - a[1]) - (b[1] - a[1]) * (d[0] - a[0]);
+  const d3 = (d[0] - c[0]) * (a[1] - c[1]) - (d[1] - c[1]) * (a[0] - c[0]);
+  const d4 = (d[0] - c[0]) * (b[1] - c[1]) - (d[1] - c[1]) * (b[0] - c[0]);
+  return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+}
+function polysOverlap(a: number[][], b: number[][]) {
+  // vertex containment (covers one piece fully inside another)
+  for (const p of a) if (pointInPoly(p[0], p[1], b)) return true;
+  for (const p of b) if (pointInPoly(p[0], p[1], a)) return true;
+  // edge crossings
+  for (let i = 0; i < a.length; i++) {
+    const a1 = a[i], a2 = a[(i + 1) % a.length];
+    for (let j = 0; j < b.length; j++) {
+      const b1 = b[j], b2 = b[(j + 1) % b.length];
+      if (segInter(a1, a2, b1, b2)) return true;
+    }
+  }
+  return false;
+}
 
 export default function BoatRender() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -121,16 +142,21 @@ export default function BoatRender() {
   const piecesRef = useRef(pieces); piecesRef.current = pieces;
   const fitRef = useRef(fit); fitRef.current = fit;
   const dragRef = useRef<{ id: string; sx: number; sy: number } | null>(null);
+  const canvasRef = useRef<View>(null);
+  const canvasPage = useRef({ x: 0, y: 0 });
+  const measureCanvas = () => canvasRef.current?.measureInWindow((x, y) => { canvasPage.current = { x, y }; });
 
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (e) => {
-        const ne: any = e.nativeEvent;
-        let lx = ne.locationX, ly = ne.locationY;
-        if (lx == null || !isFinite(lx)) { lx = ne.offsetX; ly = ne.offsetY; }
+      onPanResponderGrant: (_e, gs) => {
         const f = fitRef.current; if (!f) return;
+        // Use page coords minus the canvas offset — reliable on touch devices
+        // where nativeEvent.locationX is relative to the touched child (Svg),
+        // not the canvas View that holds the PanResponder.
+        const lx = gs.x0 - canvasPage.current.x;
+        const ly = gs.y0 - canvasPage.current.y;
         // hit-test topmost piece
         const ps = piecesRef.current;
         let hit: string | null = null;
@@ -158,6 +184,25 @@ export default function BoatRender() {
   const setSelField = (patch: Partial<P>) =>
     setPieces((prev) => prev.map((p) => (p.id === sel ? { ...p, ...patch } : p)));
   const rotateSel = (deg: number) => selP && setSelField({ _rot: (selP._rot + deg) % 360 });
+
+  // overlap detection (world coords) — few pieces so O(n²) is fine
+  const overlapIds = new Set<string>();
+  {
+    const polys = pieces.map((p) => ({ id: p.id, poly: transformed(p) }));
+    for (let i = 0; i < polys.length; i++) {
+      for (let j = i + 1; j < polys.length; j++) {
+        if (polysOverlap(polys[i].poly, polys[j].poly)) {
+          overlapIds.add(polys[i].id);
+          overlapIds.add(polys[j].id);
+        }
+      }
+    }
+  }
+  const hasOverlap = overlapIds.size > 0;
+
+  const fitView = () => {
+    if (cw) { setFit(computeFit(pieces, cw)); Haptics.selectionAsync().catch(() => {}); }
+  };
 
   const doSave = async () => {
     setSaving(true);
@@ -200,21 +245,38 @@ export default function BoatRender() {
         </View>
       ) : (
         <>
-          <View style={styles.canvas} onLayout={(e) => setCw(e.nativeEvent.layout.width)} {...pan.panHandlers}>
+          <View
+            ref={canvasRef}
+            style={styles.canvas}
+            onLayout={(e) => { setCw(e.nativeEvent.layout.width); measureCanvas(); }}
+            {...pan.panHandlers}
+          >
             {fit && (
-              <Svg width={cw} height={CH}>
+              <Svg width={cw} height={CH} pointerEvents="none">
                 {pieces.map((p) => {
                   const scr = transformed(p).map(toScreen);
                   const pts = scr.map((s) => `${s[0]},${s[1]}`).join(" ");
                   const [ccx, ccy] = centroid(scr);
+                  const over = overlapIds.has(p.id);
+                  const stroke = over ? "#D22B2B" : p.id === sel ? colors.brand : "#111";
+                  const swdt = over ? 3 : p.id === sel ? 3 : 1.5;
                   return (
                     <React.Fragment key={p.id}>
-                      <Polygon points={pts} fill={EVA[p._eva]} stroke={p.id === sel ? colors.brand : "#111"} strokeWidth={p.id === sel ? 3 : 1.5} />
+                      <Polygon points={pts} fill={EVA[p._eva]} fillOpacity={over ? 0.75 : 1} stroke={stroke} strokeWidth={swdt} strokeDasharray={over ? "8,5" : undefined} />
                       <SvgText x={ccx} y={ccy} fill="#fff" fontSize="12" fontWeight="bold" textAnchor="middle">{p.piece_name || p.name}</SvgText>
                     </React.Fragment>
                   );
                 })}
               </Svg>
+            )}
+            <Pressable testID="fit-view" onPress={fitView} style={styles.fitBtn} hitSlop={8}>
+              <Feather name="maximize" size={18} color={colors.onSurface} />
+            </Pressable>
+            {hasOverlap && (
+              <View style={styles.warnBanner} pointerEvents="none">
+                <Feather name="alert-triangle" size={14} color="#fff" />
+                <Text style={styles.warnTxt}>PEZZI SOVRAPPOSTI</Text>
+              </View>
             )}
             <Text style={styles.canvasHint}>Trascina i pezzi per comporre il piano · Tocca un pezzo per i colori</Text>
           </View>
@@ -282,6 +344,9 @@ const styles = StyleSheet.create({
   empty: { fontFamily: fonts.mono, fontSize: fontSize.base, color: colors.onSurfaceSecondary, textAlign: "center" },
   canvas: { height: 420, backgroundColor: colors.surfaceSecondary, borderBottomWidth: BORDER, borderBottomColor: colors.borderStrong },
   canvasHint: { position: "absolute", bottom: 6, left: 0, right: 0, textAlign: "center", fontFamily: fonts.mono, fontSize: 11, color: colors.onSurfaceTertiary },
+  fitBtn: { position: "absolute", top: space.sm, right: space.sm, width: 40, height: 40, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: BORDER, borderColor: colors.borderStrong },
+  warnBanner: { position: "absolute", top: space.sm, left: space.sm, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#D22B2B", paddingHorizontal: space.sm, paddingVertical: 6 },
+  warnTxt: { fontFamily: fonts.monoMed, fontSize: 11, color: "#fff", letterSpacing: 1 },
   panel: { flex: 1 },
   selName: { fontFamily: fonts.displayBold || fonts.display, fontSize: fontSize.lg, color: colors.onSurface, marginBottom: space.md },
   lbl: { fontFamily: fonts.monoMed, fontSize: 11, color: colors.onSurfaceSecondary, textTransform: "uppercase", marginBottom: space.xs, marginTop: space.sm },
