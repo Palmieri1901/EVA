@@ -14,6 +14,7 @@ from typing import List, Optional
 import cv2
 import numpy as np
 from bson import ObjectId
+import bson
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -318,6 +319,21 @@ async def update_project(project_id: str, payload: ProjectUpdate):
     doc = await get_project_doc(project_id)
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
     updates["updated_at"] = now_iso()
+    # Guard against MongoDB's 16MB document limit: an over-dense teak/groove fill can
+    # explode the elements payload. Fail with a clear Italian message instead of a
+    # raw 500 / "Failed to fetch" so the app can tell the user to lighten the fill.
+    try:
+        merged = {**doc, **updates}
+        merged.pop("_id", None)
+        approx = len(bson.BSON.encode(merged))
+    except Exception:  # noqa: BLE001
+        approx = 0
+    if approx > 15_500_000:
+        raise HTTPException(
+            status_code=413,
+            detail="Riempimento troppo fitto per essere salvato: aumenta la spaziatura "
+                   "o riduci i solchi, poi riprova.",
+        )
     await db.projects.update_one({"_id": doc["_id"]}, {"$set": updates})
     saved = await db.projects.find_one({"_id": doc["_id"]})
     return serialize(saved)
@@ -872,6 +888,27 @@ async def geometry_track(req: TrackRequest):
     return {"polylines": polys}
 
 
+def _round_polylines(polys, nd: int = 2):
+    """Round polyline coords to nd decimals (0.01mm is plenty for CNC) and drop
+    consecutive duplicate points. Halves the stored payload and keeps the project
+    document well under MongoDB's 16MB limit for dense teak/groove fills."""
+    out = []
+    for pl in polys:
+        rounded = []
+        last = None
+        for pt in pl:
+            if len(pt) < 2:
+                continue
+            c = [round(float(pt[0]), nd), round(float(pt[1]), nd)]
+            if c != last:
+                rounded.append(c)
+                last = c
+        if len(rounded) >= 2:
+            out.append(rounded)
+    return out
+
+
+
 @api_router.post("/geometry/fill")
 async def geometry_fill(req: FillRequest):
     if len(req.contour) < 3:
@@ -890,6 +927,7 @@ async def geometry_fill(req: FillRequest):
     polylines = (res.get("border") or []) + (res.get("pattern") or [])
     if not polylines:
         raise HTTPException(status_code=422, detail="Nessun riempimento generato (area troppo piccola?)")
+    polylines = _round_polylines(polylines)
     return {
         "polylines": polylines,
         "border_count": len(res.get("border") or []),

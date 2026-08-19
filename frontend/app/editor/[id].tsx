@@ -350,7 +350,7 @@ export default function Editor() {
 
   const save = useCallback(
     async (extra: any = {}) => {
-      if (!id) return;
+      if (!id) return false;
       const body = {
         contour_mm: contour,
         elements,
@@ -359,22 +359,26 @@ export default function Editor() {
         status: "edited",
         ...extra,
       };
-      await api.updateProject(id, body);
+      try {
+        await api.updateProject(id, body);
+        return true;
+      } catch (e: any) {
+        toast(e?.message || "Salvataggio non riuscito", "error");
+        return false;
+      }
     },
     [id, contour, elements, offset, fillet]
   );
 
   const onBack = async () => {
-    try { await save(); } catch {}
+    await save();
     router.replace("/");
   };
   const goExport = async () => {
     setSaving(true);
     try {
-      await save();
-      router.push(`/export/${id}` as any);
-    } catch (e: any) {
-      toast(e.message, "error");
+      const ok = await save();
+      if (ok) router.push(`/export/${id}` as any);
     } finally {
       setSaving(false);
     }
@@ -864,7 +868,7 @@ export default function Editor() {
             fillet={fillet}
             setFillet={setFillet}
             onApply={async () => {
-              try { await save(); toast("Parametri salvati", "success"); } catch (e: any) { toast(e.message, "error"); }
+              if (await save()) toast("Parametri salvati", "success");
             }}
           />
         ) : (

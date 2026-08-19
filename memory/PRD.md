@@ -5,6 +5,23 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Fix (2026-06p) — "Failed to fetch"/crash in RIEMPIMENTO (documento troppo grande)
+- CAUSA: le polilinee del riempimento venivano salvate con precisione float piena (~40 byte/punto).
+  Con texture teak/solchi molto fitti su tappeti grandi il documento del progetto superava il limite
+  di 16MB di MongoDB → `pymongo DocumentTooLarge` (500) / il proxy rifiutava il body → nel client
+  usciva "Uncaught Error: Failed to fetch" (delElement → save → updateProject).
+- FIX backend (`server.py`): nuovo `_round_polylines` applicato all'output di `/geometry/fill`:
+  coordinate arrotondate a 2 decimali (0.01mm, ampiamente sufficiente per CNC) + rimozione punti
+  consecutivi duplicati → payload ~dimezzato. Guardia in `PATCH /projects/{id}`: se il documento
+  stimato (BSON) supera ~15.5MB restituisce **HTTP 413** con messaggio italiano chiaro
+  ("Riempimento troppo fitto... aumenta la spaziatura o riduci i solchi") invece di crashare.
+- FIX frontend (`editor/[id].tsx`): `save()` ora cattura gli errori, mostra un toast e ritorna un
+  booleano (niente più eccezioni non gestite / overlay rosso). Tutti i chiamanti (delElement, applyEl,
+  rotatePiece, runFill, scheduleRefill, onBack, goExport, APPLICA) sono ora resilienti.
+- Verificato: fill groove denso 58KB→26KB con coord arrotondate; PATCH sovradimensionato → 413 con
+  messaggio; editor carica regolarmente (Pezzo 1 teak+SANDRO).
+
+
 ## Feature (2026-06o) — Raggio angoli regolabile, doghe svasate, layer bordo esterno separato
 - `geometry_ops.fill_pattern`: nuovi param `corner_radius_mm` (raggio arrotondamento bordatura,
   0=auto) e `plank_ease_mm` (svaso/arretramento tondo delle estremità doghe dal bordo; solo pattern
