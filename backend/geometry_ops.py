@@ -438,8 +438,9 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
     spacing = max(spacing_mm, 3.0)
     border_lines: List[Poly] = []
     field = poly
+    border_only = style == "bordo"  # only the frame, no interior planks/diamonds
 
-    if style == "bordato" and border_mm > 0:
+    if style in ("bordato", "bordo") and border_mm > 0:
         # inset border that follows the contour; round its corners (morphological
         # opening) so corners/curves look like real teak mat borders in the photos.
         inset = poly.buffer(-border_mm, join_style=1, resolution=24)
@@ -481,7 +482,10 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
                 plank_field = pf
         except Exception:  # noqa: BLE001
             pass
-    if pattern == "diamond":
+    if border_only:
+        # Only the frame (+ corner grooves + keep-out rings): no interior pattern.
+        pass
+    elif pattern == "diamond":
         # Diamond (rhombus) grid of width W and height H. The two edge families run
         # at +/- theta from the orientation angle, where theta = atan2(H, W); their
         # perpendicular spacing (W*H)/hypot(W,H) makes the diamonds tile exactly.

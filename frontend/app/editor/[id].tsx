@@ -158,7 +158,7 @@ export default function Editor() {
   const [fillGroove, setFillGroove] = useState("4");
   const [fillBoard, setFillBoard] = useState("0");
   const [fillDiamondHeight, setFillDiamondHeight] = useState("60");
-  const [fillStyle, setFillStyle] = useState<"semplice" | "bordato">("semplice");
+  const [fillStyle, setFillStyle] = useState<"semplice" | "bordato" | "bordo">("semplice");
   const [fillBorder, setFillBorder] = useState("40");
   const [fillCornerRadius, setFillCornerRadius] = useState("60");
   const [fillPlankEase, setFillPlankEase] = useState("0");
@@ -494,7 +494,7 @@ export default function Editor() {
     spacing: number;
     angle: number;
     auto: boolean;
-    style: "semplice" | "bordato";
+    style: "semplice" | "bordato" | "bordo";
     border: number;
     groove: number;
     board: number;
@@ -999,6 +999,8 @@ export default function Editor() {
               </Pressable>
             </View>
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg }}>
+              {fillStyle !== "bordo" && (
+              <>
               <Text style={styles.modalLabel}>Texture</Text>
               <View style={styles.typeGrid}>
                 {([
@@ -1087,31 +1089,39 @@ export default function Editor() {
                   <Text style={styles.rotBtnText}>+15°</Text>
                 </Pressable>
               </View>
+              </>
+              )}
 
               <ModalField label="Spessore solco caulking (mm)" testID="fill-groove" value={fillGroove} onChangeText={setFillGroove} keyboardType="decimal-pad" />
 
-              <ModalField label="Lunghezza doga · sfalsata (mm, 0 = continua)" testID="fill-board" value={fillBoard} onChangeText={setFillBoard} keyboardType="decimal-pad" />
+              {fillStyle !== "bordo" && (
+                <ModalField label="Lunghezza doga · sfalsata (mm, 0 = continua)" testID="fill-board" value={fillBoard} onChangeText={setFillBoard} keyboardType="decimal-pad" />
+              )}
 
               <ModalField label="Area pulita attorno a scritte, loghi, cerchi ed elementi (mm, 0 = off)" testID="fill-clear" value={fillClearMargin} onChangeText={setFillClearMargin} keyboardType="decimal-pad" />
 
               <Text style={styles.modalLabel}>Stile</Text>
-              <Segmented<"semplice" | "bordato">
+              <Segmented<"semplice" | "bordato" | "bordo">
                 testID="fill-style"
                 value={fillStyle}
                 onChange={setFillStyle}
                 options={[
                   { label: "SEMPLICE", value: "semplice" },
                   { label: "BORDATO", value: "bordato" },
+                  { label: "SOLO BORDO", value: "bordo" },
                 ]}
               />
+              {fillStyle === "bordo" && (
+                <Text style={styles.modalHint}>Solo la bordatura perimetrale con i solchi d'angolo, senza doghe interne.</Text>
+              )}
               <View style={{ height: space.md }} />
-              {fillStyle === "bordato" && (
+              {(fillStyle === "bordato" || fillStyle === "bordo") && (
                 <>
                   <ModalField label="Margine bordo (mm)" testID="fill-border" value={fillBorder} onChangeText={setFillBorder} keyboardType="decimal-pad" />
                   <ModalField label="Raggio angoli bordatura (mm)" testID="fill-corner" value={fillCornerRadius} onChangeText={setFillCornerRadius} keyboardType="decimal-pad" />
                 </>
               )}
-              {(fillPattern === "lines") && (
+              {(fillPattern === "lines" && fillStyle !== "bordo") && (
                 <ModalField label="Svaso estremità doghe (mm, 0 = off)" testID="fill-ease" value={fillPlankEase} onChangeText={setFillPlankEase} keyboardType="decimal-pad" />
               )}
 

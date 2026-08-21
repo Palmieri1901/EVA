@@ -5,6 +5,21 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06q) — RIEMPI: stile "SOLO BORDO" (bordatura senza doghe)
+- Nuovo stile nel modale RIEMPI AREA: SEMPLICE / BORDATO / **SOLO BORDO**. "SOLO BORDO" genera solo
+  la bordatura perimetrale (cornice ad angoli arrotondati + solchi d'angolo miter, e canali se solco>0),
+  SENZA alcun pattern interno (né doghe, né diamanti, né incrociato).
+- Backend (`geometry_ops.fill_pattern`): `border_only = style == "bordo"`; il bordo si genera per
+  `style in ("bordato","bordo")` e la generazione del pattern interno (lines/diamond/cross) viene saltata
+  quando border_only. Groove e keep-out (area pulita) continuano a funzionare sul solo bordo.
+- Frontend (`editor/[id].tsx`): quando lo stile è "bordo" si nascondono i campi delle doghe (Texture,
+  passo/larghezza, altezza diamante, orientamento, lunghezza doga sfalsata, svaso estremità) e restano
+  solo Margine bordo, Raggio angoli, Spessore solco, Area pulita, Layer. Salvato in `params.style` e
+  rigenerato correttamente da `rebuildFills`.
+- Verificato: style="bordo" → solo bordo (6 tracciati con groove=0, canali con groove>0), nessuna doga;
+  UI nasconde i campi doghe e mostra il suggerimento.
+
+
 ## Fix (2026-06p) — "Failed to fetch"/crash in RIEMPIMENTO (documento troppo grande)
 - CAUSA: le polilinee del riempimento venivano salvate con precisione float piena (~40 byte/punto).
   Con texture teak/solchi molto fitti su tappeti grandi il documento del progetto superava il limite
