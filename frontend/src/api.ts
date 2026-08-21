@@ -27,7 +27,7 @@ export type BackgroundMode = "blue_on_white" | "white_on_dark";
 export type TapeColor = "auto" | "blu" | "giallo" | "verde" | "rosso" | "bianco";
 export type CutSide = "inner" | "outer";
 export type Layer = "CUT" | "ENGRAVE";
-export type ToolId = "FUGA" | "CONTORNO" | "TAGLIO" | "SVASO";
+export type ToolId = "FUGA" | "BORDO" | "CONTORNO" | "TAGLIO" | "SVASO";
 export interface ToolT {
   id: ToolId;
   name: string;
@@ -185,7 +185,7 @@ export const api = {
     req("/tools", { method: "PUT", body: JSON.stringify({ tools }) }),
   geoTrack: (body: any): Promise<{ polylines: number[][][] }> =>
     req("/geometry/track", { method: "POST", body: JSON.stringify(body) }),
-  geoFill: (body: any): Promise<{ polylines: number[][][]; border_count: number; line_count: number }> =>
+  geoFill: (body: any): Promise<{ polylines: number[][][]; border: number[][][]; pattern: number[][][]; border_count: number; line_count: number }> =>
     req("/geometry/fill", { method: "POST", body: JSON.stringify(body) }),
 
   // Multi-shot

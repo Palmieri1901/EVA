@@ -227,10 +227,7 @@ def _boat_nested(pieces: List[dict]) -> dict:
         items.append({
             "id": str(p["_id"]),
             "name": p.get("piece_name") or p.get("name") or "Pezzo",
-            "fuga": buckets["FUGA"],
-            "contorno": buckets["CONTORNO"],
-            "cut": buckets["TAGLIO"],
-            "bevel": buckets["SVASO"],
+            "groups": buckets,
         })
     nested = nesting.nest_pieces(items)
     nested["total_area_m2"] = total_area
@@ -267,12 +264,7 @@ async def boat_nested_dxf(boat_id: str):
     nested = await run_in_threadpool(_boat_nested, pieces)
     if nested.get("count", 0) == 0:
         raise HTTPException(status_code=422, detail="Nessun pezzo pronto da annidare")
-    buckets = {
-        "FUGA": nested.get("fuga") or [],
-        "CONTORNO": nested.get("contorno") or [],
-        "TAGLIO": nested.get("cut") or [],
-        "SVASO": nested.get("bevel") or [],
-    }
+    buckets = {tid: (nested.get("groups") or {}).get(tid) or [] for tid in cnctools.TOOL_IDS}
     tools = await _load_tools()
     dxf_bytes = await run_in_threadpool(build_dxf, buckets, tools)
     dpath = f"{store.APP_NAME}/dxf/{boat_id}/nested_{uuid.uuid4()}.dxf"
@@ -948,14 +940,17 @@ async def geometry_fill(req: FillRequest):
         logger.exception("fill_pattern failed (exclude=%d, margin=%s, style=%s, groove=%s)",
                          len(req.exclude or []), req.exclude_margin_mm, req.style, req.groove_mm)
         raise HTTPException(status_code=422, detail=f"Riempimento non riuscito: {e}")
-    polylines = (res.get("border") or []) + (res.get("pattern") or [])
+    border = _round_polylines(res.get("border") or [])
+    pattern = _round_polylines(res.get("pattern") or [])
+    polylines = border + pattern
     if not polylines:
         raise HTTPException(status_code=422, detail="Nessun riempimento generato (area troppo piccola?)")
-    polylines = _round_polylines(polylines)
     return {
         "polylines": polylines,
-        "border_count": len(res.get("border") or []),
-        "line_count": len(res.get("pattern") or []),
+        "border": border,
+        "pattern": pattern,
+        "border_count": len(border),
+        "line_count": len(pattern),
         "angle_used": res.get("angle_used", req.angle_deg),
     }
 
@@ -970,7 +965,7 @@ def _compute_final(doc: dict):
     if doc.get("blade_offset_mm", 0):
         base = geo.apply_offset(base, doc["blade_offset_mm"])
 
-    buckets = {"FUGA": [], "CONTORNO": [], "TAGLIO": [], "SVASO": []}
+    buckets = {"FUGA": [], "BORDO": [], "CONTORNO": [], "TAGLIO": [], "SVASO": []}
     if base:
         buckets["SVASO"].append(base)  # outer perimeter -> svaso bit
     for el in doc.get("elements", []):
@@ -982,10 +977,11 @@ def _compute_final(doc: dict):
 
 
 def _legacy(buckets: dict):
-    """Collapse the 4 tool buckets into legacy (cut, engrave, bevel) lists used
+    """Collapse the tool buckets into legacy (cut, engrave, bevel) lists used
     by the SVG/PDF/GCODE exporters and previews (which only care cut vs engrave)."""
     cut = list(buckets.get("TAGLIO") or [])
-    engrave = list(buckets.get("FUGA") or []) + list(buckets.get("CONTORNO") or [])
+    engrave = (list(buckets.get("FUGA") or []) + list(buckets.get("BORDO") or [])
+               + list(buckets.get("CONTORNO") or []))
     bevel = list(buckets.get("SVASO") or [])
     return cut, engrave, bevel
 
@@ -1096,6 +1092,12 @@ async def export_project_format(project_id: str, fmt: str, body: dict = None):
         tools = await _load_tools()
         data = await run_in_threadpool(build_dxf, buckets, tools)
         mime, ext = "application/dxf", "dxf"
+    elif fmt == "gcode":
+        if not any(buckets.values()):
+            raise HTTPException(status_code=422, detail="Nessuna geometria da esportare")
+        tools = await _load_tools()
+        data = await run_in_threadpool(exporters.gcode_tools, buckets, tools, (body or {}).get("gcode"))
+        mime, ext = "text/plain", "nc"
     else:
         cut_polys, engrave_polys, bevel_polys = _legacy(buckets)
         if (body or {}).get("cut_only"):
@@ -1126,15 +1128,21 @@ async def export_boat_format(boat_id: str, fmt: str, body: dict = None):
     if nested.get("count", 0) == 0:
         raise HTTPException(status_code=422, detail="Nessun pezzo pronto da esportare")
     if fmt == "dxf":
-        buckets = {
-            "FUGA": [] if (body or {}).get("cut_only") else (nested.get("fuga") or []),
-            "CONTORNO": [] if (body or {}).get("cut_only") else (nested.get("contorno") or []),
-            "TAGLIO": nested.get("cut") or [],
-            "SVASO": nested.get("bevel") or [],
-        }
+        groups = nested.get("groups") or {}
+        buckets = {tid: list(groups.get(tid) or []) for tid in cnctools.TOOL_IDS}
+        if (body or {}).get("cut_only"):
+            buckets["FUGA"] = []
+            buckets["BORDO"] = []
+            buckets["CONTORNO"] = []
         tools = await _load_tools()
         data = await run_in_threadpool(build_dxf, buckets, tools)
         mime, ext = "application/dxf", "dxf"
+    elif fmt == "gcode":
+        groups = nested.get("groups") or {}
+        buckets = {tid: list(groups.get(tid) or []) for tid in cnctools.TOOL_IDS}
+        tools = await _load_tools()
+        data = await run_in_threadpool(exporters.gcode_tools, buckets, tools, (body or {}).get("gcode"))
+        mime, ext = "text/plain", "nc"
     else:
         cut_polys = nested["cut"]
         engrave_polys = [] if (body or {}).get("cut_only") else nested["engrave"]

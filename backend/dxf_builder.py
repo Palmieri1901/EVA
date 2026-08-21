@@ -16,7 +16,7 @@ from ezdxf import units
 import cnctools
 
 Poly = List[List[float]]
-TOOL_ORDER = ["FUGA", "CONTORNO", "TAGLIO", "SVASO"]
+TOOL_ORDER = ["FUGA", "BORDO", "CONTORNO", "TAGLIO", "SVASO"]
 
 
 def _settings_desc(t: dict) -> str:

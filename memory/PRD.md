@@ -5,6 +5,28 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06t) — G-code per Utensile + Fuga vs Bordo (utensile BORDO)
+- **Nuovo utensile BORDO** (bordatura teak, ciano ACI 4 #06B6D4, T5): ora 5 utensili
+  (FUGA, BORDO, CONTORNO, TAGLIO, SVASO). `cnctools.TOOL_IDS`/`DEFAULT_TOOLS`, `dxf_builder.TOOL_ORDER`,
+  `_compute_final` (5 bucket), `_legacy` (BORDO→engrave) aggiornati.
+- **G-code per utensile**: `exporters.gcode_tools(buckets, tools, params)` emette una sezione per
+  utensile in ordine, con cambio punta (`M5` → `M6 T<n>` → `M3 S<rpm>`) e feed/profondità/passate
+  dell'utensile. Endpoint `/export/gcode` (progetto e barca) instradano qui; verificato: sezioni
+  `===== TOOL =====` con M6 T1/T5/T2/T3/T4.
+- **Fuga vs Bordo**: `geometry/fill` ora ritorna `border` e `pattern` separati (arrotondati). Nel
+  modale RIEMPI: selettore "Utensile fughe interne" (FUGA/CONTORNO/TAGLIO) e, per stili BORDATO/SOLO
+  BORDO, selettore "Utensile bordatura" (BORDO/CONTORNO/FUGA, default BORDO). `runFill` crea DUE
+  elementi fill (bordo→tool bordatura, interno→tool fughe) con `params.group`+`params.role`;
+  `rebuildFills` rigenera per ruolo (border/pattern). nesting refactor a dict `groups` generico che
+  trasporta tutti gli utensili; endpoint barca costruiscono i bucket da `nested["groups"]`.
+- **BUGFIX critico** (trovato da testing iter15): con `groove_mm>0` il bordo veniva fuso nel pattern
+  (border_count=0) → lo split fuga/bordo non funzionava sui preset teak reali. Corretto
+  `geometry_ops.fill_pattern`: i canali del bordo e quelli interni ora sono bufferizzati SEPARATAMENTE
+  (`_channels`), border sempre popolato. Verificato: groove=5 → border_count=2 (>0).
+- Test: backend 8/8 (test_gcode_tools_and_bordo.py) + build_dxf/gcode_tools 5 utensili OK; frontend
+  RIEMPI selettori + split due elementi verificati (throwaway project, dati reali non toccati).
+
+
 ## Feature (2026-06s) — Utensili CNC multipli (colore + impostazioni macchina)
 - 4 utensili: **FUGA** (fughe teak, blu), **CONTORNO** (contorni scritte/loghi/forme, magenta),
   **TAGLIO** (tagli interni/giunzioni, rosso), **SVASO** (perimetro esterno, verde). Ogni tipo è

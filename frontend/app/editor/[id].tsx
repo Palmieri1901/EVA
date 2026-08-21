@@ -170,6 +170,7 @@ export default function Editor() {
   // CNC tool assignment (identifies engraving type by color + machine settings)
   const [elTool, setElTool] = useState<ToolId>("CONTORNO");
   const [fillTool, setFillTool] = useState<ToolId>("FUGA");
+  const [fillBorderTool, setFillBorderTool] = useState<ToolId>("BORDO");
   const [toolCfg, setToolCfg] = useState<ToolT[]>([]);
 
   const load = useCallback(async () => {
@@ -209,7 +210,7 @@ export default function Editor() {
       const tid = classifyTool(el);
       const t = toolCfg.find((x) => x.id === tid);
       if (t?.color_hex) return t.color_hex;
-      const fb: Record<ToolId, string> = { FUGA: "#2563EB", CONTORNO: "#DB2777", TAGLIO: "#DC2626", SVASO: "#16A34A" };
+      const fb: Record<ToolId, string> = { FUGA: "#2563EB", BORDO: "#06B6D4", CONTORNO: "#DB2777", TAGLIO: "#DC2626", SVASO: "#16A34A" };
       return fb[tid];
     },
     [toolCfg, classifyTool]
@@ -570,6 +571,7 @@ export default function Editor() {
     plankEase?: number;
     layer: Layer;
     tool?: ToolId;
+    borderTool?: ToolId;
     clearMargin?: number;
     setBusy?: (b: boolean) => void;
   }) => {
@@ -607,31 +609,45 @@ export default function Editor() {
         exclude_margin_mm: clear,
         layer: opts.layer,
       });
-      const el: ElementT = {
-        id: uid(),
-        type: "fill",
+      const params: any = {
+        pattern: opts.pattern,
+        style: opts.style,
+        spacing: opts.spacing,
+        angle: opts.angle,
+        auto: opts.auto,
+        border: opts.border,
+        groove: opts.groove,
+        board: opts.board,
+        diamondHeight: opts.diamondHeight || 0,
+        cornerRadius: opts.cornerRadius || 0,
+        plankEase: opts.plankEase || 0,
+        clearMargin: clear,
         layer: opts.layer,
-        tool: opts.tool || "FUGA",
-        polylines: r.polylines,
-        // store the FULL fill setup so the texture can be regenerated later
-        // (e.g. to carve the clear space + border around newly added elements).
-        params: {
-          pattern: opts.pattern,
-          style: opts.style,
-          spacing: opts.spacing,
-          angle: opts.angle,
-          auto: opts.auto,
-          border: opts.border,
-          groove: opts.groove,
-          board: opts.board,
-          diamondHeight: opts.diamondHeight || 0,
-          cornerRadius: opts.cornerRadius || 0,
-          plankEase: opts.plankEase || 0,
-          clearMargin: clear,
-          layer: opts.layer,
-        },
       };
-      const next = [...elements, el];
+      const hasBorder = (opts.style === "bordato" || opts.style === "bordo") && (r.border?.length || 0) > 0;
+      const borderTool = opts.borderTool || "BORDO";
+      const patternTool = opts.tool || "FUGA";
+      const gid = uid();
+      const newEls: ElementT[] = [];
+      if (hasBorder && borderTool !== patternTool) {
+        // split so the teak border and the internal grooves use distinct tools
+        newEls.push({
+          id: uid(), type: "fill", layer: TOOL_LAYER[borderTool], tool: borderTool,
+          polylines: r.border, params: { ...params, group: gid, role: "border" },
+        });
+        if ((r.pattern?.length || 0) > 0) {
+          newEls.push({
+            id: uid(), type: "fill", layer: TOOL_LAYER[patternTool], tool: patternTool,
+            polylines: r.pattern, params: { ...params, group: gid, role: "pattern" },
+          });
+        }
+      } else {
+        newEls.push({
+          id: uid(), type: "fill", layer: opts.layer, tool: patternTool,
+          polylines: r.polylines, params,
+        });
+      }
+      const next = [...elements, ...newEls];
       setElements(next);
       await save({ elements: next });
       setFillOpen(false);
@@ -678,7 +694,11 @@ export default function Editor() {
           layer: pr.layer || f.layer,
         });
         const idx = out.findIndex((e) => e.id === f.id);
-        if (idx >= 0) out[idx] = { ...f, polylines: r.polylines };
+        if (idx >= 0) {
+          const role = pr.role;
+          const polys = role === "border" ? r.border : role === "pattern" ? r.pattern : r.polylines;
+          out[idx] = { ...f, polylines: polys || r.polylines };
+        }
       } catch {
         // keep the old fill if regeneration fails
       }
@@ -714,6 +734,7 @@ export default function Editor() {
       plankEase: parseFloat(fillPlankEase) || 0,
       layer: TOOL_LAYER[fillTool],
       tool: fillTool,
+      borderTool: fillBorderTool,
       clearMargin: parseFloat(fillClearMargin) || 0,
       setBusy: setFillBusy,
     });
@@ -1232,7 +1253,7 @@ export default function Editor() {
                 <ModalField label="Svaso estremità doghe (mm, 0 = off)" testID="fill-ease" value={fillPlankEase} onChangeText={setFillPlankEase} keyboardType="decimal-pad" />
               )}
 
-              <Text style={styles.modalLabel}>Utensile CNC</Text>
+              <Text style={styles.modalLabel}>{fillStyle === "bordo" ? "Utensile (fughe)" : "Utensile fughe interne"}</Text>
               <View style={styles.toolRow}>
                 {(["FUGA", "CONTORNO", "TAGLIO"] as ToolId[]).map((tid) => {
                   const t = toolCfg.find((x) => x.id === tid);
@@ -1251,6 +1272,30 @@ export default function Editor() {
                   );
                 })}
               </View>
+              {(fillStyle === "bordato" || fillStyle === "bordo") && (
+                <>
+                  <Text style={styles.modalLabel}>Utensile bordatura</Text>
+                  <View style={styles.toolRow}>
+                    {(["BORDO", "CONTORNO", "FUGA"] as ToolId[]).map((tid) => {
+                      const t = toolCfg.find((x) => x.id === tid);
+                      const hex = t?.color_hex || "#888";
+                      const on = fillBorderTool === tid;
+                      return (
+                        <Pressable
+                          key={tid}
+                          testID={`fill-border-tool-${tid}`}
+                          onPress={() => { Haptics.selectionAsync().catch(() => {}); setFillBorderTool(tid); }}
+                          style={[styles.toolChip, on && { borderColor: hex, backgroundColor: hex + "1A" }]}
+                        >
+                          <View style={[styles.toolChipDot, { backgroundColor: hex }]} />
+                          <Text style={[styles.toolChipText, on && { color: colors.onSurface }]}>{tid}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  <Text style={styles.modalHint}>La bordatura teak usa un utensile diverso dalle fughe interne.</Text>
+                </>
+              )}
               <View style={{ height: space.lg }} />
               <Btn testID="fill-confirm" label="RIEMPI" loading={fillBusy} onPress={confirmFill} />
             </ScrollView>

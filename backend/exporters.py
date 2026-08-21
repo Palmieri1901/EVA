@@ -188,6 +188,88 @@ def to_gcode(cut: List[Poly], engrave: List[Poly], params: dict = None) -> bytes
 
 
 # --------------------------------------------------------------------------
+# Tool-aware G-code: one section per CNC tool, with tool changes between them
+# --------------------------------------------------------------------------
+def _tool_num(tool_no: str) -> int:
+    digits = "".join(ch for ch in str(tool_no) if ch.isdigit())
+    return int(digits) if digits else 1
+
+
+def gcode_tools(buckets: dict, tools: List[dict], params: dict = None) -> bytes:
+    """Emit G-code grouped by tool. Each tool prints its own header (tool change,
+    spindle speed, feed and depth from its machine settings) so the operator can
+    run every operation with the right bit in sequence."""
+    import cnctools
+    p = dict(GCODE_DEFAULTS)
+    if params:
+        p.update({k: v for k, v in params.items() if v is not None})
+    safe_z = float(p["safe_z_mm"])
+    feed_z = float(p["feed_z"])
+    flavor = str(p["flavor"]).lower()
+    tool_by_id = {t["id"]: t for t in (tools or cnctools.default_tools())}
+    order = cnctools.TOOL_IDS
+
+    if not any(buckets.get(tid) for tid in order):
+        raise ValueError("Nessuna geometria da esportare")
+
+    lines: List[str] = []
+    lines.append("; EVA Boat Mat Digitizer — G-code (per utensile)")
+    lines.append("G21")   # mm
+    lines.append("G90")   # absolute
+    lines.append("G17")   # XY plane
+    lines.append(f"G0 Z{safe_z:.3f}")
+
+    def pockets(polys: List[Poly], total_depth: float, step: float, feed_xy: float):
+        step = max(step, 0.1)
+        total_depth = max(total_depth, 0.1)
+        n_pass = max(1, math.ceil(total_depth / step))
+        for poly in polys:
+            if len(poly) < 2:
+                continue
+            x0, y0 = poly[0][0], poly[0][1]
+            lines.append(f"G0 Z{safe_z:.3f}")
+            lines.append(f"G0 X{x0:.3f} Y{y0:.3f}")
+            for k in range(1, n_pass + 1):
+                z = -min(step * k, total_depth)
+                lines.append(f"G1 Z{z:.3f} F{feed_z:.0f}")
+                for pt in poly[1:]:
+                    lines.append(f"G1 X{pt[0]:.3f} Y{pt[1]:.3f} F{feed_xy:.0f}")
+                if _is_closed(poly):
+                    lines.append(f"G1 X{x0:.3f} Y{y0:.3f} F{feed_xy:.0f}")
+            lines.append(f"G0 Z{safe_z:.3f}")
+
+    first = True
+    for tid in order:
+        polys = buckets.get(tid) or []
+        if not polys:
+            continue
+        t = tool_by_id.get(tid, {})
+        depth = float(t.get("depth_mm", p["cut_depth_mm"]))
+        feed_xy = float(t.get("feed_mm_min", p["feed_xy"]))
+        spindle = int(float(t.get("spindle_rpm", p["spindle_speed"])))
+        tno = _tool_num(t.get("tool_no", "T1"))
+        passes = int(t.get("passes", 1) or 1)
+        step = depth / max(passes, 1)
+        lines.append("")
+        lines.append(f"; ===== {tid} — {t.get('name', tid)} =====")
+        lines.append(f"; utensile {t.get('tool_no', 'T?')} Ø{t.get('bit_diameter_mm', '?')}mm "
+                     f"prof {depth}mm feed {feed_xy}mm/min {spindle}rpm {passes} passate")
+        if not first:
+            lines.append("M5")                 # stop spindle before tool change
+        lines.append(f"G0 Z{safe_z:.3f}")
+        lines.append(f"M6 T{tno}")             # tool change
+        lines.append(f"M3 S{spindle}")         # spindle on at this tool's speed
+        pockets(polys, depth, step, feed_xy)
+        first = False
+
+    lines.append("")
+    lines.append(f"G0 Z{safe_z:.3f}")
+    lines.append("M5")
+    lines.append("M30" if flavor == "mach3" else "M2")
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+# --------------------------------------------------------------------------
 # Dispatcher
 # --------------------------------------------------------------------------
 FORMAT_INFO = {

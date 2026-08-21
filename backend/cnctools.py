@@ -11,12 +11,15 @@ from __future__ import annotations
 
 from typing import List
 
-TOOL_IDS = ["FUGA", "CONTORNO", "TAGLIO", "SVASO"]
+TOOL_IDS = ["FUGA", "BORDO", "CONTORNO", "TAGLIO", "SVASO"]
 
 DEFAULT_TOOLS: List[dict] = [
     {"id": "FUGA", "name": "Fresa incisione fuga", "color_aci": 5, "color_hex": "#2563EB",
      "depth_mm": 2.0, "feed_mm_min": 2500.0, "spindle_rpm": 18000.0, "tool_no": "T1",
      "bit_diameter_mm": 3.0, "passes": 1},
+    {"id": "BORDO", "name": "Fresa incisione bordatura", "color_aci": 4, "color_hex": "#06B6D4",
+     "depth_mm": 2.0, "feed_mm_min": 2200.0, "spindle_rpm": 18000.0, "tool_no": "T5",
+     "bit_diameter_mm": 4.0, "passes": 1},
     {"id": "CONTORNO", "name": "Fresa incisione contorno", "color_aci": 6, "color_hex": "#DB2777",
      "depth_mm": 1.5, "feed_mm_min": 2000.0, "spindle_rpm": 18000.0, "tool_no": "T2",
      "bit_diameter_mm": 2.0, "passes": 1},

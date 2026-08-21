@@ -1,0 +1,53 @@
+{
+  "summary": "Iteration 15 verifies the two new 'G-code per Utensile' + 'Fuga vs Bordo' features. Backend: 8/8 pytest cases pass — GET /api/tools returns 5 tools including BORDO (cyan #06B6D4, ACI 4, T5); per-tool G-code export (project + boat-nested) emits '===== <TOOL>' sections with proper M6 T<n> / M3 S<rpm> / M5-between-tool-changes and per-tool feed & depth; DXF exports (project + boat nested-dxf + boat export/dxf) include BORDO layer with cyan color; Element.tool='BORDO' routes to BORDO layer. Frontend: RIEMPI modal correctly renders both 'Utensile fughe interne' (FUGA/CONTORNO/TAGLIO) and, when style=BORDATO or SOLO BORDO, 'Utensile bordatura' chips (BORDO/CONTORNO/FUGA) with the italian hint 'La bordatura teak usa un utensile diverso dalle fughe interne.' Tapping RIEMPI confirm with BORDATO + groove=0 correctly creates TWO fill elements sharing a group id (tool=BORDO role=border + tool=FUGA role=pattern) and the resulting DXF uses both BORDO and FUGA layers. Editor TEXTURE tab no longer crashes (previous iteration's toolColor prop bug is fixed). CRITICAL BACKEND BUG FOUND: geometry/fill for style=bordato with groove_mm>0 (the common CNC case) collapses the border into `pattern` and returns border_count=0 — so the frontend split silently degrades to a single FUGA element and the BORDO layer never gets any polylines. Only groove_mm=0 produces the intended two-tool split.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/geometry/fill (style=bordato|bordo with groove_mm>0)",
+        "issue": "geometry_ops.fill_pattern collapses `border_lines` into caulking pockets and returns border=[] whenever groove_mm>0 (see /app/backend/geometry_ops.py lines 576-591). Result: the new 'Fuga vs Bordo' feature only splits into two tool elements when groove_mm=0. Any real teak preset (default groove 4–5mm) makes the RIEMPI/BORDATO flow produce a single FUGA fill and NO BORDO polylines in the DXF/G-code — defeating the whole feature. Fix suggestion: keep the raw `border_lines` in the returned `border` field even when caulking pockets consume them (either return them alongside `pattern`, or expose a separate `border_grooved` list). Frontend runFill splits on r.border, so backend must always return border for bordato/bordo.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "RIEMPI · BORDATO with caulking groove (default groove_mm ≥ 1)",
+        "issue": "Because backend returns border_count=0, hasBorder is false in runFill and the code falls back to a single-element fill (tool=FUGA). The 'Utensile bordatura' chip is honored ONLY when groove_mm=0. This is an end-user-visible gap: selecting BORDO for 'Utensile bordatura' has no effect for any teak-style preset (which sets groove=5 for 'doghe').",
+        "affected_testIDs": ["fill-confirm", "fill-border-tool-BORDO", "fill-groove"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_gcode_tools_and_bordo.py",
+    "/app/test_reports/pytest/iter15_gcode_tools_bordo.xml"
+  ],
+  "action_items": [
+    "Backend: modify geometry_ops.fill_pattern so that for style='bordato'/'bordo' the returned `border` field always contains the border polylines (even when groove_mm>0), independent of the caulking-pocket collapse. Suggestion: emit border rings/keep-rings BEFORE the `pockets = _all_rings(clipped)` collapse and include them in the response `border`. Verify with curl `/api/geometry/fill … pattern=lines style=bordato groove_mm=5 …` returning border_count>0, then re-tap RIEMPI in the editor and confirm two fill elements (BORDO+FUGA) persist in GET /api/projects/{id}.",
+    "Add a small explicit unit/integration test that with groove_mm=5 and style=bordato the API returns border_count>0 (regression fence for the CRITICAL bug above).",
+    "Optional: consider surfacing a `border_grooved` array separately so DXF/G-code can render both the border grooves AND the geometric border outline on the BORDO tool."
+  ],
+  "critical_code_review_comments": [
+    "geometry_ops.fill_pattern (lines 576-591) mutates behavior of `border` based on groove_mm which conflicts with the new frontend requirement that border/pattern are always distinct arrays for bordato/bordo styles.",
+    "backend/server.py is now 1273 lines and mixes routers (projects, boats, exports, tools, geometry, photogram). Splitting into modular routers would help maintenance.",
+    "exporters.gcode_tools raises 'Nessuna geometria da esportare' when all buckets are empty but does not validate that at least one tool has passes>=1 — cosmetic only.",
+    "frontend/app/editor/[id].tsx runFill (line 627) assumes backend cooperates and returns r.border for bordato; the silent fallback to a single element is confusing UX — consider surfacing a warning if hasBorder is false while style=bordato+borderTool!=patternTool."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_gcode_tools_and_bordo.py (new — 8 tests, all pass)",
+    "/app/test_reports/pytest/iter15_gcode_tools_bordo.xml (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 new pytest cases; 5-tool list, per-tool gcode sections, boat-nested gcode, project+boat dxf with BORDO layer, Element.tool=BORDO routing, legacy exports)",
+    "frontend": "80% (RIEMPI modal shows both chip groups correctly, split works for groove_mm=0 producing 2 fill elements + 2 DXF layers; the split silently degrades for groove_mm>0 due to the backend bug — end-user impact)"
+  },
+  "seed_data_creation": "Created throwaway boat 6a88dcab8002bfadecd3bdd9 + piece 6a88dcab8002bfadecd3bdda with a 600x400 rectangular contour for RIEMPI UI testing, then DELETE /api/boats/{id} on cleanup (HTTP 200). Also created and cleaned a temporary boat inside the pytest module fixture. No mutations on the real user piece 6a849a7dd824444bccd581e6. Tool config was not modified (defaults intact: FUGA 2.0/2500, BORDO 2.0/2200).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend/frontend regression suite for iter 15 is /app/backend/tests/test_gcode_tools_and_bordo.py — reuse after any fix. When retesting the Fuga-vs-Bordo split, remember to set fill-groove to a non-zero value (e.g. 4) to reproduce the CRITICAL bug; the split currently only works with groove=0. Editor URL for a clean throwaway piece: create a boat, project, patch contour_mm and open /editor/{id}.",
+  "rca_of_issue": "Bug: RIEMPI/BORDATO does not actually route the teak border to the BORDO tool for any real teak preset. RCA: /app/backend/geometry_ops.py fill_pattern (lines ~509-591) builds `border_lines` for style in ('bordato','bordo'). When groove_mm>0 it turns border_lines into thin caulking pockets by appending them into a pockets list and then either (a) returns pattern=<pockets rings> with border=[] (line 589), or (b) returns pattern=[] with border=<pockets rings> only when the interior clip is empty (line 588). In case (a) — the common case for teak doghe/bordato — the frontend receives border_count=0, so runFill's hasBorder check fails and it falls back to a single fill element on the pattern tool (FUGA). Reproduction: POST /api/geometry/fill with pattern=lines style=bordato groove_mm=5 border_mm=40 → response.border_count=0 despite border being visually rendered. Mitigation: keep `border` field populated with the border geometry (either the raw ring polylines or the border-derived caulking pockets) whenever style ∈ {bordato,bordo}; the frontend split relies solely on r.border being non-empty."
+}

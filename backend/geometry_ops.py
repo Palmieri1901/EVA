@@ -573,19 +573,24 @@ def fill_pattern(contour: Poly, spacing_mm: float, angle_deg: float,
         else:
             lines += _hatch(plank_field, spacing, angle_deg)
 
-    # Caulking groove: turn centerlines (and border + keep-out outline) into thin channel pockets.
+    # Caulking groove: turn centerlines into thin channel pockets. Keep the teak
+    # border channels SEPARATE from the interior grooves so they can be assigned to
+    # distinct CNC tools (fresa bordatura vs fresa fuga).
     if groove_mm and groove_mm > 0:
-        segs = [LineString(l) for l in lines if len(l) >= 2]
-        for b in border_lines:
-            if len(b) >= 2:
-                segs.append(LineString(b))
-        for kr in keep_rings:
-            if len(kr) >= 2:
-                segs.append(LineString(kr))
-        if not segs:
-            return {"pattern": [], "border": [], "angle_used": angle_deg}
-        buffered = unary_union([s.buffer(groove_mm / 2.0, cap_style=2, join_style=2) for s in segs])
-        clipped = buffered.intersection(orig_poly)
-        return {"pattern": _all_rings(clipped), "border": [], "angle_used": angle_deg}
+        half = groove_mm / 2.0
 
-    return {"pattern": lines, "border": border_lines + keep_rings, "angle_used": angle_deg}
+        def _channels(src_lines):
+            segs = [LineString(l) for l in src_lines if len(l) >= 2]
+            if not segs:
+                return []
+            buffered = unary_union([s.buffer(half, cap_style=2, join_style=2) for s in segs])
+            clipped = buffered.intersection(orig_poly)
+            return _all_rings(clipped)
+
+        pattern_ch = _channels(list(lines) + list(keep_rings))
+        border_ch = _channels(list(border_lines))
+        if not pattern_ch and not border_ch:
+            return {"pattern": [], "border": [], "angle_used": angle_deg}
+        return {"pattern": pattern_ch, "border": border_ch, "angle_used": angle_deg}
+
+    return {"pattern": lines + keep_rings, "border": border_lines, "angle_used": angle_deg}
