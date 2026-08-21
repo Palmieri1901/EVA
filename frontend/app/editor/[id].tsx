@@ -20,7 +20,7 @@ import * as Haptics from "expo-haptics";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 
-import { absUrl, api, ElementT, Layer, ProjectT } from "@/src/api";
+import { absUrl, api, ElementT, Layer, ProjectT, ToolId, ToolT } from "@/src/api";
 import { Btn, Segmented } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { BORDER, colors, fonts, fontSize, space } from "@/src/theme";
@@ -139,7 +139,6 @@ export default function Editor() {
   // add-element modal
   const [addOpen, setAddOpen] = useState(false);
   const [elType, setElType] = useState<"text" | "track" | "rect" | "circle" | "line" | "svg" | "dxf" | "junction">("text");
-  const [elLayer, setElLayer] = useState<Layer>("ENGRAVE");
   const [textVal, setTextVal] = useState("");
   const [sizeVal, setSizeVal] = useState("40");
   const [spacingVal, setSpacingVal] = useState("15");
@@ -166,8 +165,12 @@ export default function Editor() {
   const [fillCornerRadius, setFillCornerRadius] = useState("60");
   const [fillPlankEase, setFillPlankEase] = useState("0");
   const [fillClearMargin, setFillClearMargin] = useState("15");
-  const [fillLayer, setFillLayer] = useState<Layer>("ENGRAVE");
   const [fillBusy, setFillBusy] = useState(false);
+
+  // CNC tool assignment (identifies engraving type by color + machine settings)
+  const [elTool, setElTool] = useState<ToolId>("CONTORNO");
+  const [fillTool, setFillTool] = useState<ToolId>("FUGA");
+  const [toolCfg, setToolCfg] = useState<ToolT[]>([]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -188,6 +191,29 @@ export default function Editor() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    api.getTools().then((r) => setToolCfg(r.tools)).catch(() => {});
+  }, []);
+
+  // Map a tool id to layer + resolve the display color from the saved tool config.
+  const TOOL_LAYER: Record<ToolId, Layer> = { FUGA: "ENGRAVE", CONTORNO: "ENGRAVE", TAGLIO: "CUT", SVASO: "CUT" };
+  const classifyTool = useCallback((el: ElementT): ToolId => {
+    if (el.tool) return el.tool;
+    if (el.layer === "CUT" || el.type === "junction") return "TAGLIO";
+    if (el.type === "fill" || el.type === "track") return "FUGA";
+    return "CONTORNO";
+  }, []);
+  const toolColor = useCallback(
+    (el: ElementT): string => {
+      const tid = classifyTool(el);
+      const t = toolCfg.find((x) => x.id === tid);
+      if (t?.color_hex) return t.color_hex;
+      const fb: Record<ToolId, string> = { FUGA: "#2563EB", CONTORNO: "#DB2777", TAGLIO: "#DC2626", SVASO: "#16A34A" };
+      return fb[tid];
+    },
+    [toolCfg, classifyTool]
+  );
 
   // fit viewBox to contour when canvas & contour ready
   const fitView = useCallback(() => {
@@ -461,20 +487,20 @@ export default function Editor() {
       if (elType === "text") {
         const r = await api.geoText({
           text: textVal, height_mm: parseFloat(sizeVal) || 30,
-          x: bb.minX + 10, y: bb.cy, layer: elLayer,
+          x: bb.minX + 10, y: bb.cy, layer: TOOL_LAYER[elTool],
         });
         polylines = r.polylines;
       } else if (elType === "svg") {
-        const r = await api.geoSvg({ svg: svgVal, width_mm: parseFloat(sizeVal) || 100, x: bb.cx - (parseFloat(sizeVal) || 100) / 2, y: bb.minY + 10, layer: elLayer });
+        const r = await api.geoSvg({ svg: svgVal, width_mm: parseFloat(sizeVal) || 100, x: bb.cx - (parseFloat(sizeVal) || 100) / 2, y: bb.minY + 10, layer: TOOL_LAYER[elTool] });
         polylines = r.polylines;
       } else if (elType === "dxf") {
         const w = parseFloat(sizeVal) || 100;
-        const r = await api.geoDxf({ dxf: dxfVal, width_mm: w, x: bb.cx - w / 2, y: bb.minY + 10, layer: elLayer });
+        const r = await api.geoDxf({ dxf: dxfVal, width_mm: w, x: bb.cx - w / 2, y: bb.minY + 10, layer: TOOL_LAYER[elTool] });
         polylines = r.polylines;
       } else if (elType === "track") {
         const r = await api.geoTrack({
           x: bb.minX, y: bb.minY, width_mm: bb.w, height_mm: bb.h,
-          spacing_mm: parseFloat(spacingVal) || 15, angle_deg: parseFloat(angleVal) || 45, layer: elLayer,
+          spacing_mm: parseFloat(spacingVal) || 15, angle_deg: parseFloat(angleVal) || 45, layer: TOOL_LAYER[elTool],
         });
         polylines = r.polylines;
       } else if (elType === "rect") {
@@ -500,9 +526,10 @@ export default function Editor() {
         polylines = [[[bb.cx - len / 2, bb.cy], [bb.cx + len / 2, bb.cy]]];
       }
       if (!polylines.length) throw new Error("Nessuna geometria generata");
-      // a junction is always a CUT (giunzione/taglio), regardless of the selector
-      const layer: Layer = elType === "junction" ? "CUT" : elLayer;
-      const el: ElementT = { id: uid(), type: elType, layer, polylines, params: {} };
+      // a junction is always TAGLIO (giunzione/taglio), regardless of the selector
+      const tool: ToolId = elType === "junction" ? "TAGLIO" : elTool;
+      const layer: Layer = TOOL_LAYER[tool];
+      const el: ElementT = { id: uid(), type: elType, layer, tool, polylines, params: {} };
       let next = [...elements, el];
       // If the piece already has a texture, re-cut it so the configured clear
       // space + border is left around the newly inserted element too.
@@ -542,6 +569,7 @@ export default function Editor() {
     cornerRadius?: number;
     plankEase?: number;
     layer: Layer;
+    tool?: ToolId;
     clearMargin?: number;
     setBusy?: (b: boolean) => void;
   }) => {
@@ -583,6 +611,7 @@ export default function Editor() {
         id: uid(),
         type: "fill",
         layer: opts.layer,
+        tool: opts.tool || "FUGA",
         polylines: r.polylines,
         // store the FULL fill setup so the texture can be regenerated later
         // (e.g. to carve the clear space + border around newly added elements).
@@ -683,7 +712,8 @@ export default function Editor() {
       diamondHeight: parseFloat(fillDiamondHeight) || 0,
       cornerRadius: parseFloat(fillCornerRadius) || 0,
       plankEase: parseFloat(fillPlankEase) || 0,
-      layer: fillLayer,
+      layer: TOOL_LAYER[fillTool],
+      tool: fillTool,
       clearMargin: parseFloat(fillClearMargin) || 0,
       setBusy: setFillBusy,
     });
@@ -700,11 +730,11 @@ export default function Editor() {
   const applyPreset = (name: "doghe" | "diamante" | "incrociato") => {
     const clearMargin = parseFloat(fillClearMargin) || 0;
     if (name === "doghe") {
-      runFill({ pattern: "lines", spacing: 60, angle: 0, auto: true, style: "bordato", border: 40, groove: 5, board: 400, cornerRadius: 60, plankEase: 8, layer: "ENGRAVE", clearMargin });
+      runFill({ pattern: "lines", spacing: 60, angle: 0, auto: true, style: "bordato", border: 40, groove: 5, board: 400, cornerRadius: 60, plankEase: 8, layer: "ENGRAVE", tool: "FUGA", clearMargin });
     } else if (name === "diamante") {
-      runFill({ pattern: "diamond", spacing: 60, angle: 0, auto: false, style: "semplice", border: 30, groove: 4, board: 0, diamondHeight: 60, layer: "ENGRAVE", clearMargin });
+      runFill({ pattern: "diamond", spacing: 60, angle: 0, auto: false, style: "semplice", border: 30, groove: 4, board: 0, diamondHeight: 60, layer: "ENGRAVE", tool: "FUGA", clearMargin });
     } else {
-      runFill({ pattern: "cross", spacing: 40, angle: 0, auto: false, style: "semplice", border: 30, groove: 4, board: 0, layer: "ENGRAVE", clearMargin });
+      runFill({ pattern: "cross", spacing: 40, angle: 0, auto: false, style: "semplice", border: 30, groove: 4, board: 0, layer: "ENGRAVE", tool: "FUGA", clearMargin });
     }
   };
 
@@ -815,7 +845,7 @@ export default function Editor() {
                         key={`${el.id}_${j}`}
                         points={s}
                         fill="none"
-                        stroke={selElement === el.id ? colors.brand : el.layer === "CUT" ? colors.cut : colors.engrave}
+                        stroke={selElement === el.id ? colors.brand : toolColor(el)}
                         strokeWidth={selElement === el.id ? sw * 2 : sw}
                       />
                     );
@@ -926,6 +956,8 @@ export default function Editor() {
             onFill={() => setFillOpen(true)}
             onPreset={applyPreset}
             onDelete={delElement}
+            toolColor={toolColor}
+            classifyTool={classifyTool}
           />
         )}
       </View>
@@ -1035,16 +1067,25 @@ export default function Editor() {
 
               {elType !== "junction" && (
                 <>
-                  <Text style={styles.modalLabel}>Layer DXF</Text>
-                  <Segmented<Layer>
-                    testID="modal-layer"
-                    value={elLayer}
-                    onChange={setElLayer}
-                    options={[
-                      { label: "INCISIONE", value: "ENGRAVE" },
-                      { label: "TAGLIO", value: "CUT" },
-                    ]}
-                  />
+                  <Text style={styles.modalLabel}>Utensile CNC</Text>
+                  <View style={styles.toolRow}>
+                    {(["CONTORNO", "FUGA", "TAGLIO"] as ToolId[]).map((tid) => {
+                      const t = toolCfg.find((x) => x.id === tid);
+                      const hex = t?.color_hex || "#888";
+                      const on = elTool === tid;
+                      return (
+                        <Pressable
+                          key={tid}
+                          testID={`el-tool-${tid}`}
+                          onPress={() => { Haptics.selectionAsync().catch(() => {}); setElTool(tid); }}
+                          style={[styles.toolChip, on && { borderColor: hex, backgroundColor: hex + "1A" }]}
+                        >
+                          <View style={[styles.toolChipDot, { backgroundColor: hex }]} />
+                          <Text style={[styles.toolChipText, on && { color: colors.onSurface }]}>{tid}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
                 </>
               )}
               <View style={{ height: space.lg }} />
@@ -1191,16 +1232,25 @@ export default function Editor() {
                 <ModalField label="Svaso estremità doghe (mm, 0 = off)" testID="fill-ease" value={fillPlankEase} onChangeText={setFillPlankEase} keyboardType="decimal-pad" />
               )}
 
-              <Text style={styles.modalLabel}>Layer DXF</Text>
-              <Segmented<Layer>
-                testID="fill-layer"
-                value={fillLayer}
-                onChange={setFillLayer}
-                options={[
-                  { label: "INCISIONE", value: "ENGRAVE" },
-                  { label: "TAGLIO", value: "CUT" },
-                ]}
-              />
+              <Text style={styles.modalLabel}>Utensile CNC</Text>
+              <View style={styles.toolRow}>
+                {(["FUGA", "CONTORNO", "TAGLIO"] as ToolId[]).map((tid) => {
+                  const t = toolCfg.find((x) => x.id === tid);
+                  const hex = t?.color_hex || "#888";
+                  const on = fillTool === tid;
+                  return (
+                    <Pressable
+                      key={tid}
+                      testID={`fill-tool-${tid}`}
+                      onPress={() => { Haptics.selectionAsync().catch(() => {}); setFillTool(tid); }}
+                      style={[styles.toolChip, on && { borderColor: hex, backgroundColor: hex + "1A" }]}
+                    >
+                      <View style={[styles.toolChipDot, { backgroundColor: hex }]} />
+                      <Text style={[styles.toolChipText, on && { color: colors.onSurface }]}>{tid}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
               <View style={{ height: space.lg }} />
               <Btn testID="fill-confirm" label="RIEMPI" loading={fillBusy} onPress={confirmFill} />
             </ScrollView>
@@ -1321,7 +1371,7 @@ function PointsPanel(props: any) {
   );
 }
 
-function TexturePanel({ elements, selId, step, setStep, onSelect, onDeselect, onMove, onRotate, onScale, onAdd, onFill, onPreset, onDelete }: any) {
+function TexturePanel({ elements, selId, step, setStep, onSelect, onDeselect, onMove, onRotate, onScale, onAdd, onFill, onPreset, onDelete, toolColor, classifyTool }: any) {
   const sel = elements.find((e: ElementT) => e.id === selId);
   if (sel) {
     return (
@@ -1423,9 +1473,9 @@ function TexturePanel({ elements, selId, step, setStep, onSelect, onDeselect, on
         ) : (
           elements.map((el: ElementT) => (
             <Pressable key={el.id} style={styles.elRow} testID={`element-${el.id}`} onPress={() => onSelect(el.id)}>
-              <View style={[styles.elDot, { backgroundColor: el.layer === "CUT" ? colors.cut : colors.engrave }]} />
+              <View style={[styles.elDot, { backgroundColor: toolColor(el) }]} />
               <Text style={styles.elName}>{el.type.toUpperCase()}</Text>
-              <Text style={styles.elLayer}>{el.layer}</Text>
+              <Text style={styles.elLayer}>{classifyTool(el)}</Text>
               <Feather name="move" size={15} color={colors.onSurfaceTertiary} />
               <Pressable testID={`del-element-${el.id}`} onPress={() => onDelete(el.id)} hitSlop={8}>
                 <Feather name="trash-2" size={16} color={colors.error} />
@@ -1559,6 +1609,10 @@ const styles = StyleSheet.create({
   typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.lg },
   typeChip: { borderWidth: BORDER, borderColor: colors.borderStrong, paddingHorizontal: space.md, paddingVertical: 8, backgroundColor: colors.surface },
   typeChipText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurface },
+  toolRow: { flexDirection: "row", gap: space.sm, marginBottom: space.xs },
+  toolChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderWidth: 1.5, borderColor: colors.borderStrong, paddingVertical: 10, backgroundColor: colors.surface },
+  toolChipDot: { width: 12, height: 12, borderRadius: 6 },
+  toolChipText: { fontFamily: fonts.monoMed, fontSize: 11, letterSpacing: 0.5, color: colors.onSurfaceSecondary },
   importBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm, borderWidth: BORDER, borderColor: colors.borderStrong, backgroundColor: colors.surfaceInverse, paddingVertical: 12, marginBottom: space.sm },
   importBtnText: { fontFamily: fonts.monoMed, fontSize: fontSize.sm, color: colors.onSurfaceInverse, textTransform: "uppercase", letterSpacing: 0.5 },
   importFileName: { fontFamily: fonts.mono, fontSize: fontSize.sm, color: colors.brand, marginBottom: space.md },

@@ -213,6 +213,6 @@ def render(fmt: str, cut: List[Poly], engrave: List[Poly], gparams: dict = None)
         data = to_gcode(cut, engrave, gparams)
     else:
         from dxf_builder import build_dxf
-        data = build_dxf(cut, engrave)
+        data = build_dxf({"FUGA": [], "CONTORNO": engrave, "TAGLIO": cut, "SVASO": []})
     mime, ext = FORMAT_INFO[fmt]
     return data, mime, ext

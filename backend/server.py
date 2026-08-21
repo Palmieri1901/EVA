@@ -34,11 +34,13 @@ import photogram
 import aruco_stitch
 import boat_render
 import vectorize as vec
+import cnctools
 from dxf_builder import build_dxf
 from models import (
     Boat,
     BoatCreate,
     BoatUpdate,
+    CncTool,
     DxfRequest,
     Element,
     MarkerInfo,
@@ -218,16 +220,17 @@ def _boat_nested(pieces: List[dict]) -> dict:
     items = []
     total_area = 0.0
     for p in pieces:
-        base, cut_polys, engrave_polys, bevel_polys = _compute_final(p)
-        if not (cut_polys or bevel_polys):
+        base, buckets = _compute_final(p)
+        if not (buckets["TAGLIO"] or buckets["SVASO"]):
             continue
         total_area += geo.area_m2(base)
         items.append({
             "id": str(p["_id"]),
             "name": p.get("piece_name") or p.get("name") or "Pezzo",
-            "cut": cut_polys,
-            "engrave": engrave_polys,
-            "bevel": bevel_polys,
+            "fuga": buckets["FUGA"],
+            "contorno": buckets["CONTORNO"],
+            "cut": buckets["TAGLIO"],
+            "bevel": buckets["SVASO"],
         })
     nested = nesting.nest_pieces(items)
     nested["total_area_m2"] = total_area
@@ -264,7 +267,14 @@ async def boat_nested_dxf(boat_id: str):
     nested = await run_in_threadpool(_boat_nested, pieces)
     if nested.get("count", 0) == 0:
         raise HTTPException(status_code=422, detail="Nessun pezzo pronto da annidare")
-    dxf_bytes = await run_in_threadpool(build_dxf, nested["cut"], nested["engrave"], nested.get("bevel"))
+    buckets = {
+        "FUGA": nested.get("fuga") or [],
+        "CONTORNO": nested.get("contorno") or [],
+        "TAGLIO": nested.get("cut") or [],
+        "SVASO": nested.get("bevel") or [],
+    }
+    tools = await _load_tools()
+    dxf_bytes = await run_in_threadpool(build_dxf, buckets, tools)
     dpath = f"{store.APP_NAME}/dxf/{boat_id}/nested_{uuid.uuid4()}.dxf"
     await run_in_threadpool(store.put_object, dpath, dxf_bytes, "application/dxf")
     return {
@@ -960,26 +970,40 @@ def _compute_final(doc: dict):
     if doc.get("blade_offset_mm", 0):
         base = geo.apply_offset(base, doc["blade_offset_mm"])
 
-    cut_polys: List[List[List[float]]] = []
-    engrave_polys: List[List[List[float]]] = []
-    bevel_polys: List[List[List[float]]] = []
+    buckets = {"FUGA": [], "CONTORNO": [], "TAGLIO": [], "SVASO": []}
     if base:
-        bevel_polys.append(base)  # outer perimeter → separate bevel layer (larger V-bit)
-
+        buckets["SVASO"].append(base)  # outer perimeter -> svaso bit
     for el in doc.get("elements", []):
-        layer = el.get("layer", "ENGRAVE")
-        target = cut_polys if layer == "CUT" else engrave_polys
+        tid = cnctools.classify_element(el)
         for poly in el.get("polylines", []):
             if len(poly) >= 2:
-                target.append(poly)
+                buckets[tid].append(poly)
+    return base, buckets
 
-    return base, cut_polys, engrave_polys, bevel_polys
+
+def _legacy(buckets: dict):
+    """Collapse the 4 tool buckets into legacy (cut, engrave, bevel) lists used
+    by the SVG/PDF/GCODE exporters and previews (which only care cut vs engrave)."""
+    cut = list(buckets.get("TAGLIO") or [])
+    engrave = list(buckets.get("FUGA") or []) + list(buckets.get("CONTORNO") or [])
+    bevel = list(buckets.get("SVASO") or [])
+    return cut, engrave, bevel
+
+
+async def _load_tools() -> List[dict]:
+    doc = await db.settings.find_one({"_id": "cnc_tools"})
+    if doc and doc.get("tools"):
+        by_id = {t["id"]: t for t in doc["tools"]}
+        # merge with defaults so newly added tool fields never break older docs
+        return [{**d, **by_id.get(d["id"], {})} for d in cnctools.default_tools()]
+    return cnctools.default_tools()
 
 
 @api_router.get("/projects/{project_id}/preview")
 async def preview_project(project_id: str):
     doc = await get_project_doc(project_id)
-    base, cut_polys, engrave_polys, bevel_polys = _compute_final(doc)
+    base, buckets = _compute_final(doc)
+    cut_polys, engrave_polys, bevel_polys = _legacy(buckets)
     bb = geo.bbox_mm(base)
     return {
         "cut": bevel_polys + cut_polys,
@@ -994,11 +1018,31 @@ async def preview_project(project_id: str):
 TIPO_LABEL = {"diamond": "Diamante", "cross": "Incrociato", "lines": "Listelli"}
 
 
+@api_router.get("/tools")
+async def get_tools():
+    return {"tools": await _load_tools()}
+
+
+@api_router.put("/tools")
+async def put_tools(payload: dict):
+    tools = payload.get("tools") or []
+    validated = [CncTool(**t).model_dump() for t in tools if t.get("id") in cnctools.TOOL_IDS]
+    if not validated:
+        raise HTTPException(status_code=422, detail="Nessun utensile valido")
+    await db.settings.update_one(
+        {"_id": "cnc_tools"},
+        {"$set": {"tools": validated, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return {"tools": await _load_tools()}
+
+
 @api_router.post("/projects/{project_id}/techsheet")
 async def techsheet_project(project_id: str, body: dict = None):
     body = body or {}
     doc = await get_project_doc(project_id)
-    base, cut_polys, engrave_polys, bevel_polys = _compute_final(doc)
+    base, buckets = _compute_final(doc)
+    cut_polys, engrave_polys, bevel_polys = _legacy(buckets)
     if not (cut_polys or bevel_polys):
         raise HTTPException(status_code=422, detail="Nessuna dima da riportare in scheda")
 
@@ -1028,10 +1072,11 @@ async def techsheet_project(project_id: str, body: dict = None):
 @api_router.post("/projects/{project_id}/export")
 async def export_project(project_id: str):
     doc = await get_project_doc(project_id)
-    _, cut_polys, engrave_polys, bevel_polys = _compute_final(doc)
-    if not cut_polys and not engrave_polys and not bevel_polys:
+    _, buckets = _compute_final(doc)
+    if not any(buckets.values()):
         raise HTTPException(status_code=422, detail="Nessuna geometria da esportare")
-    dxf_bytes = await run_in_threadpool(build_dxf, cut_polys, engrave_polys, bevel_polys)
+    tools = await _load_tools()
+    dxf_bytes = await run_in_threadpool(build_dxf, buckets, tools)
     dpath = f"{store.APP_NAME}/dxf/{project_id}/{uuid.uuid4()}.dxf"
     await run_in_threadpool(store.put_object, dpath, dxf_bytes, "application/dxf")
     await db.projects.update_one(
@@ -1044,18 +1089,26 @@ async def export_project(project_id: str):
 @api_router.post("/projects/{project_id}/export/{fmt}")
 async def export_project_format(project_id: str, fmt: str, body: dict = None):
     doc = await get_project_doc(project_id)
-    _, cut_polys, engrave_polys, bevel_polys = _compute_final(doc)
-    if (body or {}).get("cut_only"):
-        engrave_polys = []
-    cut_polys = bevel_polys + cut_polys
-    if not cut_polys and not engrave_polys:
-        raise HTTPException(status_code=422, detail="Nessuna geometria da esportare")
-    try:
-        data, mime, ext = await run_in_threadpool(
-            exporters.render, fmt, cut_polys, engrave_polys, (body or {}).get("gcode")
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    _, buckets = _compute_final(doc)
+    if fmt == "dxf":
+        if not any(buckets.values()):
+            raise HTTPException(status_code=422, detail="Nessuna geometria da esportare")
+        tools = await _load_tools()
+        data = await run_in_threadpool(build_dxf, buckets, tools)
+        mime, ext = "application/dxf", "dxf"
+    else:
+        cut_polys, engrave_polys, bevel_polys = _legacy(buckets)
+        if (body or {}).get("cut_only"):
+            engrave_polys = []
+        cut_polys = bevel_polys + cut_polys
+        if not cut_polys and not engrave_polys:
+            raise HTTPException(status_code=422, detail="Nessuna geometria da esportare")
+        try:
+            data, mime, ext = await run_in_threadpool(
+                exporters.render, fmt, cut_polys, engrave_polys, (body or {}).get("gcode")
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
     path = f"{store.APP_NAME}/exports/{project_id}/{uuid.uuid4()}.{ext}"
     await run_in_threadpool(store.put_object, path, data, mime)
     if fmt == "dxf":
@@ -1072,14 +1125,25 @@ async def export_boat_format(boat_id: str, fmt: str, body: dict = None):
     nested = await run_in_threadpool(_boat_nested, pieces)
     if nested.get("count", 0) == 0:
         raise HTTPException(status_code=422, detail="Nessun pezzo pronto da esportare")
-    cut_polys = nested["cut"]
-    engrave_polys = [] if (body or {}).get("cut_only") else nested["engrave"]
-    try:
-        data, mime, ext = await run_in_threadpool(
-            exporters.render, fmt, cut_polys, engrave_polys, (body or {}).get("gcode")
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    if fmt == "dxf":
+        buckets = {
+            "FUGA": [] if (body or {}).get("cut_only") else (nested.get("fuga") or []),
+            "CONTORNO": [] if (body or {}).get("cut_only") else (nested.get("contorno") or []),
+            "TAGLIO": nested.get("cut") or [],
+            "SVASO": nested.get("bevel") or [],
+        }
+        tools = await _load_tools()
+        data = await run_in_threadpool(build_dxf, buckets, tools)
+        mime, ext = "application/dxf", "dxf"
+    else:
+        cut_polys = nested["cut"]
+        engrave_polys = [] if (body or {}).get("cut_only") else nested["engrave"]
+        try:
+            data, mime, ext = await run_in_threadpool(
+                exporters.render, fmt, cut_polys, engrave_polys, (body or {}).get("gcode")
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
     path = f"{store.APP_NAME}/exports/{boat_id}/nested_{uuid.uuid4()}.{ext}"
     await run_in_threadpool(store.put_object, path, data, mime)
     return {

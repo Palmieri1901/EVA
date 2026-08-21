@@ -5,6 +5,28 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06s) — Utensili CNC multipli (colore + impostazioni macchina)
+- 4 utensili: **FUGA** (fughe teak, blu), **CONTORNO** (contorni scritte/loghi/forme, magenta),
+  **TAGLIO** (tagli interni/giunzioni, rosso), **SVASO** (perimetro esterno, verde). Ogni tipo è
+  identificato da un colore (layer DXF con AutoCAD Color Index) e da impostazioni macchina
+  (profondità, feed mm/min, mandrino rpm, N° utensile, Ø punta, passate).
+- Assegnazione **automatica + manuale**: `cnctools.classify_element` (fill/track→FUGA,
+  text/svg/dxf/shape→CONTORNO, junction/CUT→TAGLIO, perimetro→SVASO); override manuale via
+  selettore "Utensile CNC" (chip colorati) nei modali AGGIUNGI ELEMENTO e RIEMPI (salvato in
+  `Element.tool`).
+- Backend: `models.CncTool` + `Element.tool`; `backend/cnctools.py` (default + classify);
+  `dxf_builder.build_dxf(buckets, tools)` crea 4 layer con colori e scrive le impostazioni nella
+  `layer.description`; `server._compute_final` → 4 bucket + `_legacy` (compat svg/pdf/gcode) +
+  `_load_tools` (merge con default); `nesting.py` trasporta fuga/contorno oltre a cut/bevel.
+  Endpoint `GET /api/tools` (seed default) e `PUT /api/tools` (persist in db.settings _id=cnc_tools).
+- Frontend: schermata **/tools** (Impostazioni Utensili: colore da palette ACI + campi macchina,
+  SALVA); icona ingranaggio in home header (testID `open-tools`); editor colora canvas/lista per
+  utensile (`toolColor`/`classifyTool`, passati come props a TexturePanel).
+- Test: backend 10/10 (test_cnc_tools.py) — DXF con layer FUGA/CONTORNO/TAGLIO/SVASO e colori
+  corretti; frontend /tools e selettore Utensile verificati; risolto crash `toolColor is not defined`
+  (helper passati come props a TexturePanel).
+
+
 ## Feature (2026-06r) — SCRITTA/LOGO: import LOGO da file DXF
 - Nuovo tipo elemento **LOGO DXF** nel modale AGGIUNGI ELEMENTO (accanto a SVG). Pulsante
   "IMPORTA FILE DXF" (expo-document-picker + expo-file-system, UTF-8) → invia il contenuto a

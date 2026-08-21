@@ -27,6 +27,19 @@ export type BackgroundMode = "blue_on_white" | "white_on_dark";
 export type TapeColor = "auto" | "blu" | "giallo" | "verde" | "rosso" | "bianco";
 export type CutSide = "inner" | "outer";
 export type Layer = "CUT" | "ENGRAVE";
+export type ToolId = "FUGA" | "CONTORNO" | "TAGLIO" | "SVASO";
+export interface ToolT {
+  id: ToolId;
+  name: string;
+  color_aci: number;
+  color_hex: string;
+  depth_mm: number;
+  feed_mm_min: number;
+  spindle_rpm: number;
+  tool_no: string;
+  bit_diameter_mm: number;
+  passes: number;
+}
 export type CaptureMode = "single" | "multi" | "photogram";
 
 export interface PgPhotoT {
@@ -67,6 +80,7 @@ export interface ElementT {
   id: string;
   type: string;
   layer: Layer;
+  tool?: ToolId;
   polylines: number[][][];
   params?: Record<string, any>;
 }
@@ -166,6 +180,9 @@ export const api = {
     req("/geometry/svg", { method: "POST", body: JSON.stringify(body) }),
   geoDxf: (body: any): Promise<{ polylines: number[][][] }> =>
     req("/geometry/dxf", { method: "POST", body: JSON.stringify(body) }),
+  getTools: (): Promise<{ tools: ToolT[] }> => req("/tools"),
+  saveTools: (tools: ToolT[]): Promise<{ tools: ToolT[] }> =>
+    req("/tools", { method: "PUT", body: JSON.stringify({ tools }) }),
   geoTrack: (body: any): Promise<{ polylines: number[][][] }> =>
     req("/geometry/track", { method: "POST", body: JSON.stringify(body) }),
   geoFill: (body: any): Promise<{ polylines: number[][][]; border_count: number; line_count: number }> =>

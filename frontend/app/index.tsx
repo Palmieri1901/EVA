@@ -124,7 +124,9 @@ export default function Boats() {
           <Text style={styles.kicker}>EVA · BOAT MAT</Text>
           <Text style={styles.h1}>PROGETTI</Text>
         </View>
-        <MaterialCommunityIcons name="sail-boat" size={32} color={colors.brand} />
+        <Pressable testID="open-tools" hitSlop={10} onPress={() => { Haptics.selectionAsync().catch(() => {}); router.push("/tools" as any); }}>
+          <MaterialCommunityIcons name="tools" size={30} color={colors.brand} />
+        </Pressable>
       </View>
 
       <View style={styles.machineRow}>

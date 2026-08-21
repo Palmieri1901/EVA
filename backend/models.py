@@ -47,10 +47,24 @@ class Quality(BaseModel):
 
 class Element(BaseModel):
     id: str
-    type: str  # text | svg | rect | circle | line | track | polyline
-    layer: str = "ENGRAVE"  # CUT | ENGRAVE
+    type: str  # text | svg | dxf | rect | circle | line | track | junction | polyline
+    layer: str = "ENGRAVE"  # CUT | ENGRAVE (legacy)
+    tool: Optional[str] = None  # FUGA | CONTORNO | TAGLIO | SVASO (auto-derived if None)
     polylines: List[List[List[float]]] = Field(default_factory=list)  # mm
     params: dict = Field(default_factory=dict)
+
+
+class CncTool(BaseModel):
+    id: str  # FUGA | CONTORNO | TAGLIO | SVASO
+    name: str
+    color_aci: int = 7          # AutoCAD Color Index for the DXF layer
+    color_hex: str = "#888888"  # UI color
+    depth_mm: float = 2.0
+    feed_mm_min: float = 2000.0
+    spindle_rpm: float = 18000.0
+    tool_no: str = "T1"
+    bit_diameter_mm: float = 3.0
+    passes: int = 1
 
 
 class Project(BaseModel):

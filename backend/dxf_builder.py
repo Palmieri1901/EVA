@@ -1,26 +1,48 @@
-"""DXF builder using ezdxf. Units in mm, layers CUT (red) and ENGRAVE (blue)."""
+"""DXF builder using ezdxf. Units in mm.
+
+Geometry is grouped by CNC tool, one DXF layer per tool, each with a distinct
+color (AutoCAD Color Index) so the CAM operator can identify the operation:
+  FUGA (blue) · CONTORNO (magenta) · TAGLIO (red) · SVASO (green)
+Machine settings for each tool are written into the layer description.
+"""
 from __future__ import annotations
 
 import io
-from typing import List
+from typing import Dict, List
 
 import ezdxf
 from ezdxf import units
 
+import cnctools
 
-def build_dxf(cut_polys: List[List[List[float]]], engrave_polys: List[List[List[float]]],
-              bevel_polys: List[List[List[float]]] | None = None) -> bytes:
+Poly = List[List[float]]
+TOOL_ORDER = ["FUGA", "CONTORNO", "TAGLIO", "SVASO"]
+
+
+def _settings_desc(t: dict) -> str:
+    return (f"prof {t.get('depth_mm')}mm | feed {t.get('feed_mm_min')}mm/min | "
+            f"{t.get('spindle_rpm')}rpm | {t.get('tool_no')} O{t.get('bit_diameter_mm')}mm | "
+            f"{t.get('passes')}x")
+
+
+def build_dxf(buckets: Dict[str, List[Poly]], tools: List[dict] | None = None) -> bytes:
+    """buckets: {"FUGA":[...], "CONTORNO":[...], "TAGLIO":[...], "SVASO":[...]}"""
+    tools = tools or cnctools.default_tools()
+    tool_by_id = {t["id"]: t for t in tools}
+
     doc = ezdxf.new("R2010")
     doc.units = units.MM
-    doc.header["$INSUNITS"] = 4  # millimeters
-    doc.header["$MEASUREMENT"] = 1  # metric
+    doc.header["$INSUNITS"] = 4
+    doc.header["$MEASUREMENT"] = 1
 
-    if "CUT" not in doc.layers:
-        doc.layers.add("CUT", color=1)  # red
-    if "ENGRAVE" not in doc.layers:
-        doc.layers.add("ENGRAVE", color=5)  # blue
-    if "SVASO_EST" not in doc.layers:
-        doc.layers.add("SVASO_EST", color=3)  # green — outer bevel (larger V-bit)
+    for tid in TOOL_ORDER:
+        t = tool_by_id.get(tid) or {"color_aci": 7}
+        if tid not in doc.layers:
+            layer = doc.layers.add(tid, color=int(t.get("color_aci", 7)))
+            try:
+                layer.description = _settings_desc(t)
+            except Exception:  # noqa: BLE001
+                pass
 
     msp = doc.modelspace()
 
@@ -30,15 +52,12 @@ def build_dxf(cut_polys: List[List[List[float]]], engrave_polys: List[List[List[
         pts = [(float(p[0]), float(p[1])) for p in points]
         msp.add_lwpolyline(pts, close=close, dxfattribs={"layer": layer})
 
-    # outer perimeter bevel: separate layer (cut with a different, larger V-bit)
-    for poly in (bevel_polys or []):
-        add_poly(poly, "SVASO_EST", close=True)
-    for poly in cut_polys:
-        add_poly(poly, "CUT", close=True)
-    for poly in engrave_polys:
-        # engrave polylines may be open (text strokes) or closed shapes; keep as-is closed
-        closed = len(poly) > 2 and _is_closed(poly)
-        add_poly(poly, "ENGRAVE", close=closed)
+    for tid in TOOL_ORDER:
+        polys = buckets.get(tid) or []
+        cut_like = tid in ("TAGLIO", "SVASO")
+        for poly in polys:
+            close = True if cut_like else (len(poly) > 2 and _is_closed(poly))
+            add_poly(poly, tid, close)
 
     buf = io.StringIO()
     doc.write(buf)

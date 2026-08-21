@@ -100,18 +100,26 @@ def nest_pieces(pieces: List[dict], sheet_w: float = SHEET_W_MM,
                 allow_rotate: bool = True) -> dict:
     items = []
     for p in pieces:
-        allp = (p.get("cut") or []) + (p.get("engrave") or []) + (p.get("bevel") or [])
+        allp = ((p.get("cut") or []) + (p.get("engrave") or []) + (p.get("bevel") or [])
+                + (p.get("fuga") or []) + (p.get("contorno") or []))
         if not allp:
             continue
         minx, miny, maxx, maxy = _bbox(allp)
         w = max(maxx - minx, 1.0)
         h = max(maxy - miny, 1.0)
-        cut0 = [[[pt[0] - minx, pt[1] - miny] for pt in poly] for poly in (p.get("cut") or [])]
-        eng0 = [[[pt[0] - minx, pt[1] - miny] for pt in poly] for poly in (p.get("engrave") or [])]
-        bev0 = [[[pt[0] - minx, pt[1] - miny] for pt in poly] for poly in (p.get("bevel") or [])]
+
+        def _local(key):
+            return [[[pt[0] - minx, pt[1] - miny] for pt in poly] for poly in (p.get(key) or [])]
+
+        cut0 = _local("cut")
+        bev0 = _local("bevel")
+        fuga0 = _local("fuga")
+        cont0 = _local("contorno")
+        # legacy engrave input (from single-piece callers) folds into contorno
+        cont0 += _local("engrave")
         area = sum(_poly_area(poly) for poly in (bev0 or cut0)) or (w * h)
         items.append({"id": p.get("id"), "name": p.get("name", ""),
-                      "cut": cut0, "engrave": eng0, "bevel": bev0,
+                      "cut": cut0, "fuga": fuga0, "contorno": cont0, "bevel": bev0,
                       "w": w, "h": h, "area": area})
     items.sort(key=lambda it: max(it["w"], it["h"]) * (it["w"] * it["h"]), reverse=True)
 
@@ -158,6 +166,8 @@ def nest_pieces(pieces: List[dict], sheet_w: float = SHEET_W_MM,
     all_cut: List[Poly] = []
     all_engrave: List[Poly] = []
     all_bevel: List[Poly] = []
+    all_fuga: List[Poly] = []
+    all_contorno: List[Poly] = []
     max_used_h = 0.0
     total_part_area = 0.0
     any_oversize = False
@@ -168,28 +178,39 @@ def nest_pieces(pieces: List[dict], sheet_w: float = SHEET_W_MM,
         s_cut: List[Poly] = []
         s_eng: List[Poly] = []
         s_bev: List[Poly] = []
+        s_fuga: List[Poly] = []
+        s_cont: List[Poly] = []
         s_used_h = 0.0
         s_area = 0.0
         for it in sh["placed"]:
             x, y, rotated = it["x"], it["y"], it["rotated"]
-            cut, eng, w, h = it["cut"], it["engrave"], it["w"], it["h"]
+            cut, w, h = it["cut"], it["w"], it["h"]
             bev = it.get("bevel", [])
+            fuga = it.get("fuga", [])
+            cont = it.get("contorno", [])
             if rotated:
                 cut = rot90(cut, h)
-                eng = rot90(eng, h)
                 bev = rot90(bev, h)
+                fuga = rot90(fuga, h)
+                cont = rot90(cont, h)
                 w, h = h, w
             # local (per-sheet) geometry
             c_local = translate(cut, x, y)
-            e_local = translate(eng, x, y)
             b_local = translate(bev, x, y)
+            f_local = translate(fuga, x, y)
+            ct_local = translate(cont, x, y)
+            e_local = f_local + ct_local  # legacy engrave = fuga + contorno
             s_cut += c_local
-            s_eng += e_local
             s_bev += b_local
+            s_fuga += f_local
+            s_cont += ct_local
+            s_eng += e_local
             # combined geometry (sheet offset applied)
             all_cut += translate(cut, x + x_off, y)
-            all_engrave += translate(eng, x + x_off, y)
             all_bevel += translate(bev, x + x_off, y)
+            all_fuga += translate(fuga, x + x_off, y)
+            all_contorno += translate(cont, x + x_off, y)
+            all_engrave += translate(fuga, x + x_off, y) + translate(cont, x + x_off, y)
             s_used_h = max(s_used_h, y + h)
             s_area += it["area"]
             if it.get("oversize"):
@@ -200,7 +221,8 @@ def nest_pieces(pieces: List[dict], sheet_w: float = SHEET_W_MM,
                              "sheet": si})
         util = (s_area / (sheet_w * max(s_used_h, 1.0))) if s_used_h > 0 else 0.0
         out_sheets.append({"index": si, "pieces": s_pieces, "cut": s_cut, "engrave": s_eng,
-                           "bevel": s_bev, "used_h": s_used_h, "utilization": util,
+                           "bevel": s_bev, "fuga": s_fuga, "contorno": s_cont,
+                           "used_h": s_used_h, "utilization": util,
                            "sheet_w": sheet_w, "sheet_h": sheet_h})
         max_used_h = max(max_used_h, s_used_h)
         total_part_area += s_area
@@ -216,6 +238,8 @@ def nest_pieces(pieces: List[dict], sheet_w: float = SHEET_W_MM,
         "cut": all_cut,                # combined, sheets side-by-side (for nested DXF)
         "engrave": all_engrave,
         "bevel": all_bevel,
+        "fuga": all_fuga,
+        "contorno": all_contorno,
         "used_w": sheet_w,
         "used_h": max_used_h,
         "sheet_w": sheet_w,
