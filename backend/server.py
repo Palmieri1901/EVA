@@ -39,6 +39,7 @@ from models import (
     Boat,
     BoatCreate,
     BoatUpdate,
+    DxfRequest,
     Element,
     MarkerInfo,
     Project,
@@ -877,6 +878,19 @@ async def geometry_svg(req: SvgRequest):
     polys = await run_in_threadpool(geo.svg_to_polylines, req.svg, req.width_mm, req.x, req.y)
     if not polys:
         raise HTTPException(status_code=422, detail="Nessun tracciato <path> trovato nell'SVG")
+    return {"polylines": polys}
+
+
+@api_router.post("/geometry/dxf")
+async def geometry_dxf(req: DxfRequest):
+    try:
+        polys = await run_in_threadpool(geo.dxf_to_polylines, req.dxf, req.width_mm, req.x, req.y)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("dxf_to_polylines failed")
+        raise HTTPException(status_code=422, detail=f"DXF non leggibile: {e}")
+    if not polys:
+        raise HTTPException(status_code=422, detail="Nessuna geometria utilizzabile trovata nel DXF")
+    polys = _round_polylines(polys)
     return {"polylines": polys}
 
 

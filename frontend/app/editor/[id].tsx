@@ -138,7 +138,7 @@ export default function Editor() {
 
   // add-element modal
   const [addOpen, setAddOpen] = useState(false);
-  const [elType, setElType] = useState<"text" | "track" | "rect" | "circle" | "line" | "svg" | "junction">("text");
+  const [elType, setElType] = useState<"text" | "track" | "rect" | "circle" | "line" | "svg" | "dxf" | "junction">("text");
   const [elLayer, setElLayer] = useState<Layer>("ENGRAVE");
   const [textVal, setTextVal] = useState("");
   const [sizeVal, setSizeVal] = useState("40");
@@ -147,6 +147,9 @@ export default function Editor() {
   const [svgVal, setSvgVal] = useState("");
   const [svgFileName, setSvgFileName] = useState<string | null>(null);
   const [svgPicking, setSvgPicking] = useState(false);
+  const [dxfVal, setDxfVal] = useState("");
+  const [dxfFileName, setDxfFileName] = useState<string | null>(null);
+  const [dxfPicking, setDxfPicking] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
 
   // fill-area modal
@@ -417,6 +420,39 @@ export default function Editor() {
     }
   };
 
+  const pickDxfFile = async () => {
+    setDxfPicking(true);
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ["image/vnd.dxf", "application/dxf", "application/octet-stream", "*/*"],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (res.canceled || !res.assets?.length) return;
+      const asset = res.assets[0];
+      const name = asset.name || "logo.dxf";
+      if (!/\.dxf$/i.test(name)) {
+        toast("Seleziona un file .dxf valido", "error");
+        return;
+      }
+      const content = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      if (!content || !/(SECTION|ENTITIES|LINE|POLYLINE|CIRCLE)/i.test(content)) {
+        toast("DXF senza geometrie utilizzabili", "error");
+        return;
+      }
+      setDxfVal(content);
+      setDxfFileName(name);
+      Haptics.selectionAsync().catch(() => {});
+      toast(`Logo DXF "${name}" caricato · premi AGGIUNGI`, "success");
+    } catch (e: any) {
+      toast(e.message || "Errore importazione DXF", "error");
+    } finally {
+      setDxfPicking(false);
+    }
+  };
+
   const confirmAdd = async () => {
     const bb = bboxOf(contour);
     setAddBusy(true);
@@ -430,6 +466,10 @@ export default function Editor() {
         polylines = r.polylines;
       } else if (elType === "svg") {
         const r = await api.geoSvg({ svg: svgVal, width_mm: parseFloat(sizeVal) || 100, x: bb.cx - (parseFloat(sizeVal) || 100) / 2, y: bb.minY + 10, layer: elLayer });
+        polylines = r.polylines;
+      } else if (elType === "dxf") {
+        const w = parseFloat(sizeVal) || 100;
+        const r = await api.geoDxf({ dxf: dxfVal, width_mm: w, x: bb.cx - w / 2, y: bb.minY + 10, layer: elLayer });
         polylines = r.polylines;
       } else if (elType === "track") {
         const r = await api.geoTrack({
@@ -903,7 +943,7 @@ export default function Editor() {
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg }}>
               <Text style={styles.modalLabel}>Tipo</Text>
               <View style={styles.typeGrid}>
-                {(["text", "svg", "track", "rect", "circle", "line", "junction"] as const).map((t) => (
+                {(["text", "svg", "dxf", "track", "rect", "circle", "line", "junction"] as const).map((t) => (
                   <Pressable
                     key={t}
                     testID={`type-${t}`}
@@ -911,7 +951,7 @@ export default function Editor() {
                     style={[styles.typeChip, elType === t && { backgroundColor: colors.surfaceInverse }]}
                   >
                     <Text style={[styles.typeChipText, elType === t && { color: colors.onSurfaceInverse }]}>
-                      {t === "junction" ? "GIUNZIONE" : t.toUpperCase()}
+                      {t === "junction" ? "GIUNZIONE" : t === "dxf" ? "LOGO DXF" : t.toUpperCase()}
                     </Text>
                   </Pressable>
                 ))}
@@ -945,9 +985,35 @@ export default function Editor() {
                   <ModalField label="SVG (path)" testID="modal-svg" value={svgVal} onChangeText={setSvgVal} placeholder="Importa un file .svg o incolla qui il codice" multiline />
                 </>
               )}
-              {(elType === "text" || elType === "svg" || elType === "rect" || elType === "circle" || elType === "line") && (
+              {elType === "dxf" && (
+                <>
+                  <Pressable
+                    testID="dxf-import-file"
+                    onPress={pickDxfFile}
+                    disabled={dxfPicking}
+                    style={styles.importBtn}
+                  >
+                    {dxfPicking ? (
+                      <ActivityIndicator size="small" color={colors.onSurfaceInverse} />
+                    ) : (
+                      <>
+                        <Feather name="upload" size={16} color={colors.onSurfaceInverse} />
+                        <Text style={styles.importBtnText}>IMPORTA FILE DXF</Text>
+                      </>
+                    )}
+                  </Pressable>
+                  {dxfFileName ? (
+                    <Text style={styles.importFileName} numberOfLines={1}>
+                      ✓ {dxfFileName}
+                    </Text>
+                  ) : (
+                    <Text style={styles.modalHint}>Importa un logo/disegno da file .dxf (linee, polilinee, cerchi, archi, spline). Verrà scalato alla dimensione scelta e posizionato al centro.</Text>
+                  )}
+                </>
+              )}
+              {(elType === "text" || elType === "svg" || elType === "dxf" || elType === "rect" || elType === "circle" || elType === "line") && (
                 <ModalField
-                  label={elType === "text" ? "Altezza (mm)" : elType === "circle" ? "Diametro (mm)" : "Dimensione (mm)"}
+                  label={elType === "text" ? "Altezza (mm)" : elType === "circle" ? "Diametro (mm)" : elType === "dxf" || elType === "svg" ? "Larghezza (mm)" : "Dimensione (mm)"}
                   testID="modal-size"
                   value={sizeVal}
                   onChangeText={setSizeVal}

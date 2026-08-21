@@ -164,6 +164,8 @@ export const api = {
     req("/geometry/text", { method: "POST", body: JSON.stringify(body) }),
   geoSvg: (body: any): Promise<{ polylines: number[][][] }> =>
     req("/geometry/svg", { method: "POST", body: JSON.stringify(body) }),
+  geoDxf: (body: any): Promise<{ polylines: number[][][] }> =>
+    req("/geometry/dxf", { method: "POST", body: JSON.stringify(body) }),
   geoTrack: (body: any): Promise<{ polylines: number[][][] }> =>
     req("/geometry/track", { method: "POST", body: JSON.stringify(body) }),
   geoFill: (body: any): Promise<{ polylines: number[][][]; border_count: number; line_count: number }> =>

@@ -205,6 +205,72 @@ def svg_to_polylines(svg: str, width_mm: float, x: float, y: float, samples: int
 
 
 # --------------------------------------------------------------------------
+# DXF -> vector paths (import a logo/drawing from a .dxf file)
+# --------------------------------------------------------------------------
+def _dxf_entity_polys(e, sag: float = 0.5) -> List[Poly]:
+    """Extract one entity as a list of polylines (xy). Curves are flattened."""
+    t = e.dxftype()
+    try:
+        if t == "LINE":
+            s, en = e.dxf.start, e.dxf.end
+            return [[[float(s.x), float(s.y)], [float(en.x), float(en.y)]]]
+        if t == "LWPOLYLINE":
+            pts = [[float(p[0]), float(p[1])] for p in e.get_points("xy")]
+            if getattr(e, "closed", False) and len(pts) >= 2:
+                pts.append(pts[0])
+            return [pts]
+        if t == "POLYLINE":
+            pts = [[float(v.dxf.location.x), float(v.dxf.location.y)] for v in e.vertices]
+            if e.is_closed and len(pts) >= 2:
+                pts.append(pts[0])
+            return [pts]
+        if t in ("CIRCLE", "ARC", "ELLIPSE", "SPLINE"):
+            pts = [[float(p.x), float(p.y)] for p in e.flattening(sag)]
+            return [pts]
+        if t == "INSERT":
+            out: List[Poly] = []
+            for v in e.virtual_entities():
+                out += _dxf_entity_polys(v, sag)
+            return out
+    except Exception:  # noqa: BLE001
+        return []
+    return []
+
+
+def dxf_to_polylines(dxf_text: str, width_mm: float, x: float, y: float) -> List[Poly]:
+    """Parse a DXF drawing (text) into polylines, scaled so its width == width_mm
+    and positioned at (x, y). DXF is Y-up, so Y is flipped to match the mm plane."""
+    import io
+    import ezdxf
+    from ezdxf import recover
+
+    try:
+        doc = ezdxf.read(io.StringIO(dxf_text))
+    except Exception:  # noqa: BLE001
+        doc, _auditor = recover.read(io.StringIO(dxf_text))
+    msp = doc.modelspace()
+    raw: List[Poly] = []
+    for e in msp:
+        for pl in _dxf_entity_polys(e):
+            clean = [p for p in pl if len(p) >= 2 and math.isfinite(p[0]) and math.isfinite(p[1])]
+            if len(clean) >= 2:
+                raw.append(clean)
+    if not raw:
+        return []
+    all_x = [p[0] for poly in raw for p in poly]
+    all_y = [p[1] for poly in raw for p in poly]
+    raw_w = (max(all_x) - min(all_x)) or 1.0
+    scale = width_mm / raw_w
+    min_x = min(all_x)
+    max_y = max(all_y)
+    out: List[Poly] = []
+    for poly in raw:
+        # flip Y (DXF is y-up; our plane is y-down)
+        out.append([[float((px - min_x) * scale + x), float((max_y - py) * scale + y)] for px, py in poly])
+    return out
+
+
+# --------------------------------------------------------------------------
 # Track pattern (parallel grooves)
 # --------------------------------------------------------------------------
 def track_pattern(x: float, y: float, width_mm: float, height_mm: float,

@@ -5,6 +5,21 @@ App per estrarre dime precise di tappeti in EVA da foto di aree piane delimitate
 con editor vettoriale e texture, ed export DXF pronto per fresa CNC. Mobile (Expo) + backend
 FastAPI condiviso; la Computer Vision gira sul backend.
 
+## Feature (2026-06r) — SCRITTA/LOGO: import LOGO da file DXF
+- Nuovo tipo elemento **LOGO DXF** nel modale AGGIUNGI ELEMENTO (accanto a SVG). Pulsante
+  "IMPORTA FILE DXF" (expo-document-picker + expo-file-system, UTF-8) → invia il contenuto a
+  `POST /api/geometry/dxf` → polilinee in mm, scalate alla Larghezza scelta e centrate nel pezzo,
+  inserite come elemento posizionabile/scalabile/ruotabile con selettore layer INCISIONE/TAGLIO.
+- Backend: `models.DxfRequest`; `geometry_ops.dxf_to_polylines` (ezdxf 1.4): legge LINE, LWPOLYLINE,
+  POLYLINE, CIRCLE, ARC, ELLIPSE, SPLINE (flattening) ed esplode gli INSERT via `virtual_entities`;
+  scala a width_mm e ribalta la Y (DXF è Y-up). Endpoint `/geometry/dxf` con `_round_polylines`
+  (2 decimali) e messaggi d'errore italiani (422 "DXF non leggibile" / "Nessuna geometria...").
+- Frontend `api.geoDxf` + `editor/[id].tsx` (tipo "dxf", stati dxfVal/dxfFileName/dxfPicking,
+  pickDxfFile, ramo confirmAdd). Il campo dimensione mostra "Larghezza (mm)" per dxf/svg.
+- Verificato: DXF (rettangolo+cerchio+linea) → 3 polilinee scalate a 200mm; UI mostra LOGO DXF +
+  IMPORTA FILE DXF + Larghezza + layer. NB: il file-picker nativo si prova su dispositivo/Expo Go.
+
+
 ## Feature (2026-06q) — RIEMPI: stile "SOLO BORDO" (bordatura senza doghe)
 - Nuovo stile nel modale RIEMPI AREA: SEMPLICE / BORDATO / **SOLO BORDO**. "SOLO BORDO" genera solo
   la bordatura perimetrale (cornice ad angoli arrotondati + solchi d'angolo miter, e canali se solco>0),

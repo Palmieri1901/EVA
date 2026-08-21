@@ -170,6 +170,14 @@ class SvgRequest(BaseModel):
     layer: str = "CUT"
 
 
+class DxfRequest(BaseModel):
+    dxf: str
+    width_mm: float = 100.0
+    x: float = 0.0
+    y: float = 0.0
+    layer: str = "CUT"
+
+
 class TrackRequest(BaseModel):
     x: float = 0.0
     y: float = 0.0
